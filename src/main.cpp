@@ -1,13 +1,11 @@
 #include <Arduino.h>
 #include <WiFi.h>
+#include <WiFiManager.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
-
-const char* WIFI_SSID = "SOMMAI-2.4G";
-const char* WIFI_PASSWORD = "15032519";
 
 const char* OPENWEATHER_API_KEY = "1f61d24ccd551214bcbc61c408cb65bd";
 const char* PROVINCE_NAME = "Bangkok";
@@ -15,6 +13,8 @@ const char* COUNTRY_CODE = "TH";
 const unsigned long WEATHER_INTERVAL_MS = 120000UL;
 const unsigned long WIFI_RETRY_INTERVAL_MS = 10000UL;
 const unsigned long OLED_REFRESH_MS = 1000UL;
+const unsigned long WIFI_RESET_HOLD_MS = 5000UL;
+const char* WIFI_MANAGER_AP_NAME = "ESP32-Weather-Setup";
 
 const int OLED_SDA_PIN = 21;
 const int OLED_SCL_PIN = 22;
@@ -39,16 +39,19 @@ bool relay1State = false;
 bool relay2State = false;
 bool relay3State = false;
 bool oledReady = false;
+bool sw1ResetTriggered = false;
 
 int lastReading1 = HIGH, stableState1 = HIGH;
 int lastReading2 = HIGH, stableState2 = HIGH;
 int lastReading3 = HIGH, stableState3 = HIGH;
+unsigned long sw1PressedAt = 0;
 unsigned long lastDebounceTime1 = 0;
 unsigned long lastDebounceTime2 = 0;
 unsigned long lastDebounceTime3 = 0;
 const unsigned long DEBOUNCE_DELAY_MS = 50UL;
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+WiFiManager wifiManager;
 
 struct WeatherData {
   float temperature = NAN;
@@ -159,6 +162,91 @@ void initOled() {
   delay(800);
 }
 
+void showMessage(const char* line1, const char* line2 = nullptr, const char* line3 = nullptr) {
+  if (!oledReady) {
+    return;
+  }
+
+  display.clearDisplay();
+  display.setTextColor(SSD1306_WHITE);
+  display.setTextSize(1);
+  display.setCursor(0, 0);
+  display.println(line1);
+  if (line2 != nullptr) {
+    display.println(line2);
+  }
+  if (line3 != nullptr) {
+    display.println(line3);
+  }
+  display.display();
+}
+
+bool isSwitchPressed(int swPin) {
+  return digitalRead(swPin) == LOW;
+}
+
+void clearSavedWiFiSettings() {
+  Serial.println("Resetting saved WiFi settings.");
+  showMessage("Resetting WiFi", "settings...");
+  wifiManager.resetSettings();
+  WiFi.disconnect(true, true);
+  delay(1000);
+}
+
+void resetWiFiIfSw1HeldOnStartup() {
+  if (!isSwitchPressed(SW1_PIN)) {
+    return;
+  }
+
+  Serial.println("SW1 pressed on startup. Hold for 5 seconds to reset WiFi settings.");
+  showMessage("Hold SW1", "5 sec reset WiFi");
+
+  const unsigned long start = millis();
+  while ((millis() - start) < WIFI_RESET_HOLD_MS) {
+    if (!isSwitchPressed(SW1_PIN)) {
+      Serial.println("SW1 released before 5 seconds. WiFi settings kept.");
+      showMessage("WiFi reset canceled");
+      delay(700);
+      return;
+    }
+    delay(50);
+  }
+
+  clearSavedWiFiSettings();
+}
+
+bool startWiFiManager() {
+  WiFi.mode(WIFI_STA);
+  wifiManager.setConnectTimeout(15);
+  wifiManager.setConfigPortalTimeout(180);
+
+  Serial.println("Starting WiFiManager.");
+  Serial.print("Config AP: ");
+  Serial.println(WIFI_MANAGER_AP_NAME);
+  showMessage("Connecting WiFi", "AP if needed:", WIFI_MANAGER_AP_NAME);
+
+  if (wifiManager.autoConnect(WIFI_MANAGER_AP_NAME)) {
+    Serial.print("WiFi connected, IP: ");
+    Serial.println(WiFi.localIP());
+    showMessage("WiFi connected", WiFi.localIP().toString().c_str());
+    delay(800);
+    return true;
+  }
+
+  Serial.println("WiFiManager timed out. Will retry in loop.");
+  showMessage("WiFi not set", "Will retry later");
+  delay(800);
+  return false;
+}
+
+void resetWiFiAndStartPortal() {
+  clearSavedWiFiSettings();
+  startWiFiManager();
+  lastWifiRetry = millis();
+  lastWeatherRead = millis();
+  drawOled();
+}
+
 void handleSwitch(int swPin, int &lastReading, int &stableState, unsigned long &lastDebounce, bool &relayState, int relayPin, const char* label) {
   const int currentReading = digitalRead(swPin);
 
@@ -183,6 +271,39 @@ void handleSwitch(int swPin, int &lastReading, int &stableState, unsigned long &
   lastReading = currentReading;
 }
 
+void handleSw1() {
+  const int currentReading = digitalRead(SW1_PIN);
+
+  if (currentReading != lastReading1) {
+    lastDebounceTime1 = millis();
+  }
+
+  if ((millis() - lastDebounceTime1) > DEBOUNCE_DELAY_MS) {
+    if (currentReading != stableState1) {
+      stableState1 = currentReading;
+
+      if (stableState1 == LOW) {
+        sw1PressedAt = millis();
+        sw1ResetTriggered = false;
+        Serial.println("SW1 pressed. Hold 5 seconds to reset WiFi.");
+      } else if (!sw1ResetTriggered) {
+        relay1State = !relay1State;
+        digitalWrite(RELAY1_PIN, relay1State ? LOW : HIGH);
+        Serial.println(relay1State ? "Relay 1 -> ON" : "Relay 1 -> OFF");
+        drawOled();
+      }
+    }
+
+    if (stableState1 == LOW && !sw1ResetTriggered && (millis() - sw1PressedAt) >= WIFI_RESET_HOLD_MS) {
+      sw1ResetTriggered = true;
+      Serial.println("SW1 held for 5 seconds. Reset WiFi now.");
+      resetWiFiAndStartPortal();
+    }
+  }
+
+  lastReading1 = currentReading;
+}
+
 const char* aqiText(int aqi) {
   switch (aqi) {
     case 1:
@@ -205,11 +326,10 @@ bool connectWiFi(unsigned long timeoutMs = 15000UL) {
     return true;
   }
 
-  Serial.print("Connecting WiFi: ");
-  Serial.println(WIFI_SSID);
+  Serial.println("Reconnecting WiFi...");
 
   WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  WiFi.reconnect();
 
   const unsigned long start = millis();
   while (WiFi.status() != WL_CONNECTED && (millis() - start) < timeoutMs) {
@@ -397,17 +517,20 @@ void setup() {
   pinMode(SW2_PIN, INPUT);
   pinMode(SW3_PIN, INPUT);
 
+  resetWiFiIfSw1HeldOnStartup();
+
   digitalWrite(RELAY1_PIN, HIGH);
   digitalWrite(RELAY2_PIN, HIGH);
   digitalWrite(RELAY3_PIN, HIGH);
   digitalWrite(LED_BUILTIN, LOW);
 
+  startWiFiManager();
   readBangkokWeather();
   lastWeatherRead = millis();
 }
 
 void loop() {
-  handleSwitch(SW1_PIN, lastReading1, stableState1, lastDebounceTime1, relay1State, RELAY1_PIN, "Relay 1");
+  handleSw1();
   handleSwitch(SW2_PIN, lastReading2, stableState2, lastDebounceTime2, relay2State, RELAY2_PIN, "Relay 2");
   handleSwitch(SW3_PIN, lastReading3, stableState3, lastDebounceTime3, relay3State, RELAY3_PIN, "Relay 3");
 
