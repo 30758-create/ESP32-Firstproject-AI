@@ -1,14 +1,14 @@
 {
   "platformio-ide.toolbar": [
     {
-      "text": "$(arrow-right)",
-      "tooltip": "Upload and Monitor",
-      "commands": "platformio-ide.uploadAndMonitor"
-    },
-    {
-      "text": "$(check)",
+      "text": "$(check) Build",
       "tooltip": "Build",
       "commands": "platformio-ide.build"
+    },
+    {
+      "text": "$(arrow-right) Upload",
+      "tooltip": "Upload",
+      "commands": "platformio-ide.upload"
     },
     {
       "text": "$(plug)",
