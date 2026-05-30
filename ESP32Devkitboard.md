@@ -1,25 +1,19 @@
-# รายละเอียดบอร์ด ESP32 DevKit และการต่อวงจร
+# ESP32 DevKit Board และ Wiring
 
-เอกสารนี้สรุปข้อมูลฮาร์ดแวร์ที่เกี่ยวข้องกับโปรเจกต์ ESP32 Weather, Air Quality, Relay, WiFiManager และ Telegram โดยเน้นบอร์ด `esp32doit-devkit-v1` ตามที่กำหนดใน `platformio.ini`
+เอกสารนี้อธิบายการต่อวงจรและข้อควรระวังของฮาร์ดแวร์สำหรับโปรเจกต์ ESP32 Weather Dashboard
 
-## บอร์ดที่ใช้
+## Board
+
+โปรเจกต์ใช้บอร์ด:
 
 ```ini
 board = esp32doit-devkit-v1
 framework = arduino
 ```
 
-บอร์ดกลุ่ม ESP32 DevKit V1 มักใช้โมดูล ESP32-WROOM-32 มี WiFi 2.4 GHz และ Bluetooth ในตัว เหมาะกับงาน IoT ที่ต้องเชื่อมต่อ internet และควบคุมอุปกรณ์ภายนอก
+ESP32 ใช้ logic level `3.3V` ห้ามป้อนสัญญาณ `5V` เข้าขา GPIO โดยตรง
 
-## ข้อมูลสำคัญของ ESP32
-
-- Logic level ของ GPIO คือ `3.3V`
-- ไม่ควรป้อนสัญญาณ `5V` เข้าขา GPIO โดยตรง
-- ใช้ไฟเลี้ยงผ่าน USB หรือ Vin ตามสเปกของบอร์ด
-- เมื่อใช้ WiFi ควรมีแหล่งจ่ายไฟที่นิ่งและจ่ายกระแสได้เพียงพอ
-- ESP32 รองรับ WiFi 2.4 GHz ไม่รองรับ WiFi 5 GHz
-
-## GPIO ที่ใช้ในโปรเจกต์
+## Pin ที่ใช้ทั้งหมด
 
 | ฟังก์ชัน | GPIO | ทิศทาง | หมายเหตุ |
 | --- | ---: | --- | --- |
@@ -35,7 +29,13 @@ framework = arduino
 
 ## OLED SSD1306 I2C
 
-โปรเจกต์ใช้จอ OLED SSD1306 ความละเอียด 128x64 ผ่าน I2C
+OLED ที่ใช้:
+
+- Driver: SSD1306
+- Resolution: 128x64
+- I2C address ในโค้ด: `0x3C`
+
+การต่อสาย:
 
 | OLED | ESP32 |
 | --- | --- |
@@ -44,33 +44,44 @@ framework = arduino
 | `SDA` | `GPIO 21` |
 | `SCL` | `GPIO 22` |
 
-ค่าในโค้ด:
+ถ้าจอไม่ติด:
 
-```cpp
-const int OLED_SDA_PIN = 21;
-const int OLED_SCL_PIN = 22;
-const int OLED_ADDRESS = 0x3C;
-```
-
-ถ้าจอไม่แสดงผล:
-
-- ตรวจสาย `SDA` และ `SCL`
+- ตรวจสาย SDA/SCL
 - ตรวจ GND ร่วม
-- ตรวจว่า address เป็น `0x3C` หรือ `0x3D`
-- ดู Serial Monitor ว่ามีข้อความ `OLED init failed. Check wiring/address 0x3C.` หรือไม่
+- ตรวจ address ว่าเป็น `0x3C` หรือ `0x3D`
+- ดู Serial Monitor ว่ามี `OLED init failed. Check wiring/address 0x3C.`
+
+## Layout บน OLED
+
+จอแสดง:
+
+- `Bangkok`
+- `WIFI OK` หรือ `WIFI NO OK`
+- `Temp`
+- `Hum`
+- `AQI`
+- `PM`
+- `Time HH:MM:SS`
+- badge `R1`, `R2`, `R3`
+
+ถ้า NTP ยัง sync ไม่สำเร็จ เวลาจะแสดง:
+
+```text
+Time --:--:--
+```
 
 ## Relay Module
 
-Relay ในโปรเจกต์นี้ตั้งเป็น Active Low หมายความว่า:
+Relay ในโปรเจกต์นี้เป็นแบบ Active Low:
 
-- สั่ง `LOW` เพื่อเปิด Relay
-- สั่ง `HIGH` เพื่อปิด Relay
+- GPIO `LOW` = Relay ON
+- GPIO `HIGH` = Relay OFF
 
 | Relay | GPIO | สถานะเริ่มต้น |
 | --- | ---: | --- |
-| Relay 1 | `GPIO 17` | OFF ด้วย `HIGH` |
-| Relay 2 | `GPIO 16` | OFF ด้วย `HIGH` |
-| Relay 3 | `GPIO 4` | OFF ด้วย `HIGH` |
+| Relay 1 | `GPIO 17` | OFF |
+| Relay 2 | `GPIO 16` | OFF |
+| Relay 3 | `GPIO 4` | OFF |
 
 ตัวอย่าง logic:
 
@@ -81,23 +92,24 @@ digitalWrite(RELAY1_PIN, HIGH);  // OFF
 
 ข้อควรระวัง:
 
-- Relay module บางรุ่นใช้ไฟเลี้ยง 5V แต่ input control อาจรับ 3.3V ได้หรือไม่ได้ ต้องตรวจรุ่นที่ใช้
-- ถ้าควบคุมโหลดไฟบ้านหรือ AC ต้องระวังไฟฟ้าแรงสูง
-- ควรแยกวงจรไฟแรงสูงกับวงจร ESP32 ให้ปลอดภัย
-- ถ้า Relay กินกระแสมาก ไม่ควรใช้ไฟจาก ESP32 โดยตรง
+- Relay module บางรุ่นใช้ไฟเลี้ยง 5V ต้องตรวจว่า input control รองรับ 3.3V หรือไม่
+- ถ้าควบคุมไฟบ้าน/AC ต้องระวังไฟฟ้าแรงสูง
+- ควรแยกวงจรไฟแรงสูงออกจาก ESP32
+- ถ้า Relay ใช้กระแสสูง ควรใช้แหล่งจ่ายไฟแยก
+- ต้องต่อ GND ร่วมระหว่าง ESP32 กับ relay module เมื่อใช้สัญญาณควบคุมร่วมกัน
 
-## Switch แบบ Active Low
+## Switch
 
-ปุ่มในโปรเจกต์อ่านค่าแบบ Active Low:
+ปุ่มเป็นแบบ Active Low:
 
-- ไม่กด: `HIGH`
-- กด: `LOW`
+- ไม่กด = `HIGH`
+- กด = `LOW`
 
-| Switch | GPIO | การใช้งาน |
+| Switch | GPIO | หน้าที่ |
 | --- | ---: | --- |
-| `SW1` | `GPIO 34` | กดสั้นสลับ Relay 1, กดค้าง 5 วินาที reset WiFi |
-| `SW2` | `GPIO 35` | กดสลับ Relay 2 |
-| `SW3` | `GPIO 32` | กดสลับ Relay 3 |
+| `SW1` | `GPIO 34` | กดสั้น Relay 1, กดค้าง 5 วินาที reset WiFi |
+| `SW2` | `GPIO 35` | กดสั้น Relay 2 |
+| `SW3` | `GPIO 32` | กดสั้น Relay 3 |
 
 วงจรปุ่มที่แนะนำ:
 
@@ -109,63 +121,72 @@ digitalWrite(RELAY1_PIN, HIGH);  // OFF
                         GND
 ```
 
-เมื่อไม่กด resistor จะดึงขา GPIO เป็น `HIGH` และเมื่อกดปุ่ม ขา GPIO จะถูกดึงลง `GND` เป็น `LOW`
-
 ## ข้อสำคัญของ GPIO 34 และ GPIO 35
 
-`GPIO 34` และ `GPIO 35` เป็น input-only และไม่มี internal pull-up/pull-down ดังนั้นห้ามหวังพึ่ง `INPUT_PULLUP` กับสองขานี้ ต้องใส่ resistor pull-up ภายนอกจริง
+`GPIO 34` และ `GPIO 35` เป็น input-only และไม่มี internal pull-up/pull-down
+
+ดังนั้นต้องใช้ external pull-up จริง ห้ามหวังพึ่ง `INPUT_PULLUP`
 
 ถ้าไม่มี external pull-up อาจเกิดอาการ:
 
 - กดปุ่มแล้ว Serial Monitor ไม่ขึ้น log
 - Relay เปลี่ยนเอง
 - กด SW1 ค้างแล้วไม่ reset WiFi
-- อ่านค่าสถานะปุ่มไม่นิ่ง
+- สถานะปุ่มไม่นิ่ง
 
-## WiFiManager และปุ่ม SW1
+## WiFi
 
-โปรแกรมรองรับการ reset WiFi ด้วย `SW1`
+ESP32 รองรับ WiFi 2.4 GHz เท่านั้น ไม่รองรับ 5 GHz
 
-- กดค้างตอนเปิดเครื่องครบ 5 วินาที
-- หรือกดค้างระหว่างโปรแกรมทำงานครบ 5 วินาที
-
-หลัง reset โปรแกรมจะเปิด Access Point:
+WiFiManager AP:
 
 ```text
 ESP32-Weather-Setup
 ```
 
-แล้วตั้งค่า WiFi ผ่าน browser ที่:
+หน้า config:
 
 ```text
 192.168.4.1
 ```
 
-## OLED Layout
+## MQTT
 
-จอ OLED กว้าง 128 pixels สูง 64 pixels ข้อความยาวเกินขอบจะถูกตัด โปรแกรมจึงวางสถานะ WiFi ที่ตำแหน่ง `x = 68`
+โปรเจกต์ใช้ MQTT ผ่าน WiFi ไปยัง HiveMQ public broker:
 
-ข้อความสถานะ:
+```text
+broker.hivemq.com:1883
+```
 
-- `WIFI OK`
-- `WIFI NO OK`
+topic มี `BOARD_ID` เพื่อกันข้อมูลชน:
 
-ถ้าปรับข้อความให้ยาวขึ้น ต้องลดตำแหน่ง x หรือย่อข้อความเพื่อไม่ให้ล้นจอ
+```text
+esp32/weather/esp32-weather-001/...
+```
+
+หากมีหลายบอร์ด ควรเปลี่ยน `BOARD_ID` ใน `src/main.cpp` ให้ไม่ซ้ำกัน เช่น:
+
+```cpp
+const char* BOARD_ID = "esp32-weather-002";
+```
 
 ## Serial Monitor
 
-ตั้งค่า baud rate:
+ตั้งค่า:
 
 ```ini
 monitor_speed = 115200
 ```
 
-ข้อความที่ควรเห็นเมื่อระบบทำงาน:
+ข้อความสำคัญที่ควรเห็น:
 
 ```text
 ESP32 OpenWeather program started.
 Starting WiFiManager.
 WiFi connected, IP: ...
+NTP time synced: ...
+Connecting MQTT: broker.hivemq.com
+MQTT connected.
 Bangkok Weather / Air Quality
 ```
 
@@ -176,19 +197,15 @@ SW1 pressed. Hold 5 seconds to reset WiFi.
 SW1 held for 5 seconds. Reset WiFi now.
 ```
 
-## คำแนะนำด้านไฟเลี้ยง
-
-- ใช้สาย USB คุณภาพดี
-- ถ้า Relay ทำงานแล้ว ESP32 reset เอง แปลว่าไฟอาจตก
-- แนะนำให้ใช้ไฟเลี้ยง Relay แยกจาก ESP32 ถ้าโหลดมาก
-- ต้องต่อ GND ร่วมระหว่าง ESP32 กับ relay module เมื่อใช้สัญญาณควบคุมร่วมกัน
-
 ## Checklist ก่อนทดสอบ
 
 - OLED ต่อ `SDA = GPIO 21`, `SCL = GPIO 22`
-- Relay ต่อถูกขาและรองรับ logic 3.3V
+- OLED address ตรงกับ `0x3C`
+- Relay ต่อถูกขาและเป็น Active Low
 - SW1/SW2 มี external pull-up
 - WiFi เป็น 2.4 GHz
 - OpenWeather API key ถูกต้อง
-- Telegram bot token และ chat id ถูกต้อง ถ้าต้องการใช้ notification
+- Telegram token/chat id ถูกต้อง ถ้าต้องใช้ Telegram
+- MQTT broker ออก internet ผ่าน port `1883` ได้
+- `BOARD_ID` ไม่ซ้ำกับบอร์ดตัวอื่น
 - Serial Monitor ตั้งที่ `115200`

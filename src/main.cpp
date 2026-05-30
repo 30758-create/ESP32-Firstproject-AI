@@ -4,10 +4,13 @@
 #include <WiFiManager.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
+#include <PubSubClient.h>
+#include <time.h>
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
+const char* BOARD_ID = "esp32-weather-001";
 const char* OPENWEATHER_API_KEY = "1f61d24ccd551214bcbc61c408cb65bd";
 const char* PROVINCE_NAME = "Bangkok";
 const char* COUNTRY_CODE = "TH";
@@ -17,9 +20,16 @@ const unsigned long WEATHER_INTERVAL_MS = 120000UL;
 const unsigned long WIFI_RETRY_INTERVAL_MS = 10000UL;
 const unsigned long OLED_REFRESH_MS = 1000UL;
 const unsigned long WIFI_RESET_HOLD_MS = 5000UL;
-const unsigned long TELEGRAM_TIMEOUT_MS = 4000UL;
-const unsigned long TELEGRAM_WEATHER_INTERVAL_MS = 600000UL;
+const unsigned long MQTT_RETRY_INTERVAL_MS = 5000UL;
+const unsigned long MQTT_STATUS_INTERVAL_MS = 30000UL;
 const char* WIFI_MANAGER_AP_NAME = "ESP32-Weather-Setup";
+const char* MQTT_SERVER = "broker.hivemq.com";
+const int MQTT_PORT = 1883;
+const char* MQTT_BASE_TOPIC = "esp32/weather";
+const char* NTP_SERVER_1 = "pool.ntp.org";
+const char* NTP_SERVER_2 = "time.nist.gov";
+const long GMT_OFFSET_SEC = 7 * 3600;
+const int DAYLIGHT_OFFSET_SEC = 0;
 
 const int OLED_SDA_PIN = 21;
 const int OLED_SCL_PIN = 22;
@@ -31,7 +41,8 @@ const int OLED_ADDRESS = 0x3C;
 unsigned long lastWeatherRead = 0;
 unsigned long lastWifiRetry = 0;
 unsigned long lastOledRefresh = 0;
-unsigned long lastTelegramWeather = 0;
+unsigned long lastMqttRetry = 0;
+unsigned long lastMqttStatus = 0;
 
 const int RELAY1_PIN = 17;
 const int RELAY2_PIN = 16;
@@ -46,6 +57,7 @@ bool relay2State = false;
 bool relay3State = false;
 bool oledReady = false;
 bool sw1ResetTriggered = false;
+bool timeReady = false;
 
 int lastReading1 = HIGH, stableState1 = HIGH;
 int lastReading2 = HIGH, stableState2 = HIGH;
@@ -58,6 +70,8 @@ const unsigned long DEBOUNCE_DELAY_MS = 50UL;
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 WiFiManager wifiManager;
+WiFiClient mqttWifiClient;
+PubSubClient mqttClient(mqttWifiClient);
 
 struct WeatherData {
   float temperature = NAN;
@@ -71,6 +85,21 @@ struct WeatherData {
 WeatherData latestWeather;
 
 const char* aqiText(int aqi);
+void notifyRelayChange(const char* label, bool relayState);
+void publishRelayTelemetry();
+void publishStatusTelemetry();
+void publishWeatherTelemetry();
+
+String currentTimeText() {
+  struct tm timeInfo;
+  if (!getLocalTime(&timeInfo, 10)) {
+    return "--:--:--";
+  }
+
+  char buffer[9];
+  strftime(buffer, sizeof(buffer), "%H:%M:%S", &timeInfo);
+  return String(buffer);
+}
 
 void drawRelayBadge(int x, int y, const char* label, bool isOn) {
   display.drawRoundRect(x, y, 38, 11, 2, SSD1306_WHITE);
@@ -143,7 +172,8 @@ void drawOled() {
   }
 
   display.setCursor(0, 43);
-  display.print("Relay Status");
+  display.print("Time ");
+  display.print(currentTimeText());
   drawRelayBadge(0, 53, "R1", relay1State);
   drawRelayBadge(45, 53, "R2", relay2State);
   drawRelayBadge(90, 53, "R3", relay3State);
@@ -193,6 +223,301 @@ bool isSwitchPressed(int swPin) {
   return digitalRead(swPin) == LOW;
 }
 
+bool syncNtpTime() {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("NTP skipped because WiFi is not connected.");
+    return false;
+  }
+
+  Serial.println("Syncing time from NTP for Asia/Bangkok...");
+  configTime(GMT_OFFSET_SEC, DAYLIGHT_OFFSET_SEC, NTP_SERVER_1, NTP_SERVER_2);
+
+  struct tm timeInfo;
+  for (int i = 0; i < 10; i++) {
+    if (getLocalTime(&timeInfo, 500)) {
+      timeReady = true;
+      Serial.print("NTP time synced: ");
+      Serial.println(currentTimeText());
+      return true;
+    }
+    delay(200);
+  }
+
+  timeReady = false;
+  Serial.println("NTP sync failed. Will show --:--:-- until time is available.");
+  return false;
+}
+
+String mqttTopic(const char* suffix) {
+  String topic = MQTT_BASE_TOPIC;
+  topic += "/";
+  topic += BOARD_ID;
+  topic += "/";
+  topic += suffix;
+  return topic;
+}
+
+void publishMqttJson(const char* suffix, JsonDocument &doc, bool retained = false) {
+  if (!mqttClient.connected()) {
+    return;
+  }
+
+  char payload[384];
+  const size_t length = serializeJson(doc, payload, sizeof(payload));
+  if (length == 0 || length >= sizeof(payload)) {
+    Serial.println("MQTT payload too large or empty.");
+    return;
+  }
+
+  const String topic = mqttTopic(suffix);
+  if (mqttClient.publish(topic.c_str(), payload, retained)) {
+    Serial.print("MQTT publish: ");
+    Serial.println(topic);
+  } else {
+    Serial.print("MQTT publish failed: ");
+    Serial.println(topic);
+  }
+}
+
+void setRelayState(int relayNumber, bool newState, const char* source) {
+  bool *relayState = nullptr;
+  int relayPin = -1;
+  const char* label = "";
+
+  switch (relayNumber) {
+    case 1:
+      relayState = &relay1State;
+      relayPin = RELAY1_PIN;
+      label = "Relay 1";
+      break;
+    case 2:
+      relayState = &relay2State;
+      relayPin = RELAY2_PIN;
+      label = "Relay 2";
+      break;
+    case 3:
+      relayState = &relay3State;
+      relayPin = RELAY3_PIN;
+      label = "Relay 3";
+      break;
+    default:
+      Serial.println("Invalid relay number.");
+      return;
+  }
+
+  if (*relayState == newState) {
+    return;
+  }
+
+  *relayState = newState;
+  digitalWrite(relayPin, *relayState ? LOW : HIGH);
+
+  Serial.print(label);
+  Serial.print(" -> ");
+  Serial.print(*relayState ? "ON" : "OFF");
+  Serial.print(" by ");
+  Serial.println(source);
+
+  drawOled();
+  notifyRelayChange(label, *relayState);
+  publishRelayTelemetry();
+
+  JsonDocument event;
+  event["board_id"] = BOARD_ID;
+  event["relay"] = relayNumber;
+  event["state"] = *relayState ? "ON" : "OFF";
+  event["source"] = source;
+  publishMqttJson("event/relay", event);
+}
+
+void toggleRelayState(int relayNumber, const char* source) {
+  switch (relayNumber) {
+    case 1:
+      setRelayState(1, !relay1State, source);
+      break;
+    case 2:
+      setRelayState(2, !relay2State, source);
+      break;
+    case 3:
+      setRelayState(3, !relay3State, source);
+      break;
+    default:
+      Serial.println("Invalid relay number.");
+      break;
+  }
+}
+
+void handleMqttRelayCommand(int relayNumber, const String &payload) {
+  String command = payload;
+  command.trim();
+  command.toUpperCase();
+
+  if (command == "ON" || command == "1" || command == "TRUE") {
+    setRelayState(relayNumber, true, "mqtt");
+  } else if (command == "OFF" || command == "0" || command == "FALSE") {
+    setRelayState(relayNumber, false, "mqtt");
+  } else if (command == "TOGGLE") {
+    toggleRelayState(relayNumber, "mqtt");
+  } else {
+    Serial.print("Unknown MQTT relay command: ");
+    Serial.println(payload);
+  }
+}
+
+void mqttCallback(char* topic, byte* payload, unsigned int length) {
+  String topicText = topic;
+  String payloadText;
+  payloadText.reserve(length + 1);
+  for (unsigned int i = 0; i < length; i++) {
+    payloadText += static_cast<char>(payload[i]);
+  }
+
+  Serial.print("MQTT message: ");
+  Serial.print(topicText);
+  Serial.print(" = ");
+  Serial.println(payloadText);
+
+  const String prefix = mqttTopic("control/relay/");
+  if (!topicText.startsWith(prefix)) {
+    return;
+  }
+
+  const String suffix = topicText.substring(prefix.length());
+  const int slashIndex = suffix.indexOf('/');
+  if (slashIndex < 0) {
+    return;
+  }
+
+  const int relayNumber = suffix.substring(0, slashIndex).toInt();
+  const String action = suffix.substring(slashIndex + 1);
+
+  if (action == "set") {
+    handleMqttRelayCommand(relayNumber, payloadText);
+  } else if (action == "toggle") {
+    toggleRelayState(relayNumber, "mqtt");
+  }
+}
+
+void publishRelayTelemetry() {
+  JsonDocument doc;
+  doc["board_id"] = BOARD_ID;
+  doc["relay1"] = relay1State ? "ON" : "OFF";
+  doc["relay2"] = relay2State ? "ON" : "OFF";
+  doc["relay3"] = relay3State ? "ON" : "OFF";
+  publishMqttJson("telemetry/relay", doc, true);
+}
+
+void publishStatusTelemetry() {
+  JsonDocument doc;
+  doc["board_id"] = BOARD_ID;
+  doc["wifi"] = WiFi.status() == WL_CONNECTED ? "OK" : "NO OK";
+  doc["ip"] = WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : "";
+  doc["rssi"] = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0;
+  doc["uptime_ms"] = millis();
+  doc["time"] = currentTimeText();
+  publishMqttJson("telemetry/status", doc, true);
+}
+
+void publishWeatherTelemetry() {
+  JsonDocument weatherDoc;
+  weatherDoc["board_id"] = BOARD_ID;
+  weatherDoc["province"] = PROVINCE_NAME;
+  weatherDoc["country"] = COUNTRY_CODE;
+  if (latestWeather.weatherReady && !isnan(latestWeather.temperature)) {
+    weatherDoc["temperature_c"] = latestWeather.temperature;
+  } else {
+    weatherDoc["temperature_c"] = nullptr;
+  }
+  if (latestWeather.weatherReady && latestWeather.humidity >= 0) {
+    weatherDoc["humidity_percent"] = latestWeather.humidity;
+  } else {
+    weatherDoc["humidity_percent"] = nullptr;
+  }
+  publishMqttJson("telemetry/weather", weatherDoc);
+
+  JsonDocument airDoc;
+  airDoc["board_id"] = BOARD_ID;
+  if (latestWeather.airReady && latestWeather.aqi > 0) {
+    airDoc["aqi"] = latestWeather.aqi;
+  } else {
+    airDoc["aqi"] = nullptr;
+  }
+  if (latestWeather.airReady && !isnan(latestWeather.pm25)) {
+    airDoc["pm25_ugm3"] = latestWeather.pm25;
+  } else {
+    airDoc["pm25_ugm3"] = nullptr;
+  }
+  publishMqttJson("telemetry/air", airDoc);
+}
+
+void publishMqttOnlineStatus(bool isOnline) {
+  if (!mqttClient.connected()) {
+    return;
+  }
+
+  JsonDocument doc;
+  doc["board_id"] = BOARD_ID;
+  doc["status"] = isOnline ? "online" : "offline";
+  publishMqttJson("status", doc, true);
+}
+
+bool connectMqtt() {
+  if (WiFi.status() != WL_CONNECTED) {
+    return false;
+  }
+
+  if (mqttClient.connected()) {
+    return true;
+  }
+
+  const String clientId = String(BOARD_ID) + "-" + String((uint32_t)ESP.getEfuseMac(), HEX);
+  const String willTopic = mqttTopic("status");
+  const String controlTopic = mqttTopic("control/#");
+  const String offlinePayload = String("{\"board_id\":\"") + BOARD_ID + "\",\"status\":\"offline\"}";
+
+  Serial.print("Connecting MQTT: ");
+  Serial.println(MQTT_SERVER);
+
+  if (mqttClient.connect(clientId.c_str(), willTopic.c_str(), 0, true, offlinePayload.c_str())) {
+    Serial.println("MQTT connected.");
+    mqttClient.subscribe(controlTopic.c_str());
+    Serial.print("MQTT subscribe: ");
+    Serial.println(controlTopic);
+    publishMqttOnlineStatus(true);
+    publishStatusTelemetry();
+    publishRelayTelemetry();
+    publishWeatherTelemetry();
+    return true;
+  }
+
+  Serial.print("MQTT connect failed, state: ");
+  Serial.println(mqttClient.state());
+  return false;
+}
+
+void handleMqtt() {
+  if (WiFi.status() != WL_CONNECTED) {
+    return;
+  }
+
+  if (!mqttClient.connected()) {
+    const unsigned long now = millis();
+    if ((now - lastMqttRetry) >= MQTT_RETRY_INTERVAL_MS) {
+      lastMqttRetry = now;
+      connectMqtt();
+    }
+    return;
+  }
+
+  mqttClient.loop();
+
+  const unsigned long now = millis();
+  if ((now - lastMqttStatus) >= MQTT_STATUS_INTERVAL_MS) {
+    lastMqttStatus = now;
+    publishStatusTelemetry();
+  }
+}
+
 bool isTelegramReady() {
   return strcmp(TELEGRAM_BOT_TOKEN, "PUT_YOUR_TELEGRAM_BOT_TOKEN_HERE") != 0 &&
          strcmp(TELEGRAM_CHAT_ID, "PUT_YOUR_TELEGRAM_CHAT_ID_HERE") != 0;
@@ -225,7 +550,7 @@ bool sendTelegramMessage(const String &message) {
   String body;
   serializeJson(doc, body);
 
-  http.setTimeout(TELEGRAM_TIMEOUT_MS);
+  http.setTimeout(10000);
   if (!http.begin(client, url)) {
     Serial.println("Telegram API begin failed.");
     return false;
@@ -259,6 +584,8 @@ void notifyWeatherReport() {
   message += COUNTRY_CODE;
   message += "\nWiFi: ";
   message += WiFi.status() == WL_CONNECTED ? "OK" : "NO OK";
+  message += "\nTime: ";
+  message += currentTimeText();
   message += "\nTemp: ";
   message += latestWeather.weatherReady && !isnan(latestWeather.temperature) ? String(latestWeather.temperature, 1) + " C" : "--.- C";
   message += "\nHumidity: ";
@@ -314,7 +641,9 @@ bool startWiFiManager() {
   if (wifiManager.autoConnect(WIFI_MANAGER_AP_NAME)) {
     Serial.print("WiFi connected, IP: ");
     Serial.println(WiFi.localIP());
+    syncNtpTime();
     showMessage("WiFi connected", WiFi.localIP().toString().c_str());
+    connectMqtt();
     sendTelegramMessage("ESP32 connected to WiFi.\nIP: " + WiFi.localIP().toString());
     delay(800);
     return true;
@@ -346,12 +675,11 @@ void handleSwitch(int swPin, int &lastReading, int &stableState, unsigned long &
       stableState = currentReading;
 
       if (stableState == LOW) {
-        relayState = !relayState;
-        digitalWrite(relayPin, relayState ? LOW : HIGH);
-        Serial.print(label);
-        Serial.println(relayState ? " -> ON" : " -> OFF");
-        drawOled();
-        notifyRelayChange(label, relayState);
+        if (relayPin == RELAY2_PIN) {
+          toggleRelayState(2, "switch");
+        } else if (relayPin == RELAY3_PIN) {
+          toggleRelayState(3, "switch");
+        }
       }
     }
   }
@@ -375,11 +703,7 @@ void handleSw1() {
         sw1ResetTriggered = false;
         Serial.println("SW1 pressed. Hold 5 seconds to reset WiFi.");
       } else if (!sw1ResetTriggered) {
-        relay1State = !relay1State;
-        digitalWrite(RELAY1_PIN, relay1State ? LOW : HIGH);
-        Serial.println(relay1State ? "Relay 1 -> ON" : "Relay 1 -> OFF");
-        drawOled();
-        notifyRelayChange("Relay 1", relay1State);
+        toggleRelayState(1, "switch");
       }
     }
 
@@ -430,6 +754,8 @@ bool connectWiFi(unsigned long timeoutMs = 15000UL) {
     Serial.println();
     Serial.print("WiFi connected, IP: ");
     Serial.println(WiFi.localIP());
+    syncNtpTime();
+    connectMqtt();
     return true;
   }
 
@@ -586,12 +912,8 @@ void readBangkokWeather() {
   Serial.println("Next read in 2 minutes.");
   Serial.println("================================");
   drawOled();
-
-  const unsigned long now = millis();
-  if ((now - lastTelegramWeather) >= TELEGRAM_WEATHER_INTERVAL_MS) {
-    lastTelegramWeather = now;
-    notifyWeatherReport();
-  }
+  publishWeatherTelemetry();
+  notifyWeatherReport();
 }
 
 void setup() {
@@ -602,6 +924,9 @@ void setup() {
   Serial.println("ESP32 OpenWeather program started.");
   Serial.println("Open Serial Monitor at 115200 baud.");
   initOled();
+  mqttClient.setServer(MQTT_SERVER, MQTT_PORT);
+  mqttClient.setCallback(mqttCallback);
+  mqttClient.setBufferSize(512);
 
   pinMode(RELAY1_PIN, OUTPUT);
   pinMode(RELAY2_PIN, OUTPUT);
@@ -625,6 +950,7 @@ void setup() {
 }
 
 void loop() {
+  handleMqtt();
   handleSw1();
   handleSwitch(SW2_PIN, lastReading2, stableState2, lastDebounceTime2, relay2State, RELAY2_PIN, "Relay 2");
   handleSwitch(SW3_PIN, lastReading3, stableState3, lastDebounceTime3, relay3State, RELAY3_PIN, "Relay 3");
