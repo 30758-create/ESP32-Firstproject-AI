@@ -91,8 +91,8 @@ void drawOled() {
   display.setTextSize(1);
   display.setCursor(2, 2);
   display.print(PROVINCE_NAME);
-  display.setCursor(88, 2);
-  display.print(WiFi.status() == WL_CONNECTED ? "WiFi OK" : "NO WIFI");
+  display.setCursor(68, 2);
+  display.print(WiFi.status() == WL_CONNECTED ? "WIFI OK" : "WIFI NO OK");
   display.setTextColor(SSD1306_WHITE);
 
   display.drawLine(0, 39, SCREEN_WIDTH, 39, SSD1306_WHITE);
