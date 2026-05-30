@@ -52,3 +52,17 @@
 
 ---
 *ข้อควรระวัง: ขาของ ESP32 ส่วนใหญ่ทำงานที่ระดับแรงดัน 3.3V เท่านั้น การนำแรงดัน 5V มาต่อเข้าขา GPIO โดยตรงอาจทำให้ชิปเสียหายได้*
+
+## การเชื่อมต่อ Switch (Active Low)
+
+รายละเอียดการกำหนดขา GPIO สำหรับ Switch พร้อม External Pull-up:
+
+| อุปกรณ์ | ขา GPIO | โหมดการทำงาน | หมายเหตุ |
+| :--- | :---: | :--- | :--- |
+| **SW 1** | GPIO 34 | Active Low | External Pull-up |
+| **SW 2** | GPIO 35 | Active Low | External Pull-up |
+| **SW 3** | GPIO 32 | Active Low | External Pull-up |
+
+### หลักการทำงานของ Switch
+1.  **สถานะกด (Pressed):** สัญญาณจะเป็น `LOW` (0)
+2.  **สถานะปล่อย (Released):** สัญญาณจะเป็น `HIGH` (1) เนื่องจากมี External Pull-up ดึงแรงดันไว้
