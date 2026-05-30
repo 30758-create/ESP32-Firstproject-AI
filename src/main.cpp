@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <WiFiManager.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
@@ -10,10 +11,14 @@
 const char* OPENWEATHER_API_KEY = "1f61d24ccd551214bcbc61c408cb65bd";
 const char* PROVINCE_NAME = "Bangkok";
 const char* COUNTRY_CODE = "TH";
+const char* TELEGRAM_BOT_TOKEN = "8979674098:AAFkjLStVFABc05k5YuhvpGyj78OIcPhq_o";
+const char* TELEGRAM_CHAT_ID = "8692538195";
 const unsigned long WEATHER_INTERVAL_MS = 120000UL;
 const unsigned long WIFI_RETRY_INTERVAL_MS = 10000UL;
 const unsigned long OLED_REFRESH_MS = 1000UL;
 const unsigned long WIFI_RESET_HOLD_MS = 5000UL;
+const unsigned long TELEGRAM_TIMEOUT_MS = 4000UL;
+const unsigned long TELEGRAM_WEATHER_INTERVAL_MS = 600000UL;
 const char* WIFI_MANAGER_AP_NAME = "ESP32-Weather-Setup";
 
 const int OLED_SDA_PIN = 21;
@@ -26,6 +31,7 @@ const int OLED_ADDRESS = 0x3C;
 unsigned long lastWeatherRead = 0;
 unsigned long lastWifiRetry = 0;
 unsigned long lastOledRefresh = 0;
+unsigned long lastTelegramWeather = 0;
 
 const int RELAY1_PIN = 17;
 const int RELAY2_PIN = 16;
@@ -63,6 +69,8 @@ struct WeatherData {
 };
 
 WeatherData latestWeather;
+
+const char* aqiText(int aqi);
 
 void drawRelayBadge(int x, int y, const char* label, bool isOn) {
   display.drawRoundRect(x, y, 38, 11, 2, SSD1306_WHITE);
@@ -185,9 +193,87 @@ bool isSwitchPressed(int swPin) {
   return digitalRead(swPin) == LOW;
 }
 
+bool isTelegramReady() {
+  return strcmp(TELEGRAM_BOT_TOKEN, "PUT_YOUR_TELEGRAM_BOT_TOKEN_HERE") != 0 &&
+         strcmp(TELEGRAM_CHAT_ID, "PUT_YOUR_TELEGRAM_CHAT_ID_HERE") != 0;
+}
+
+bool sendTelegramMessage(const String &message) {
+  if (!isTelegramReady()) {
+    Serial.println("Telegram is not configured. Skip notification.");
+    return false;
+  }
+
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("Telegram skipped because WiFi is not connected.");
+    return false;
+  }
+
+  WiFiClientSecure client;
+  HTTPClient http;
+  client.setInsecure();
+
+  String url = "https://api.telegram.org/bot";
+  url += TELEGRAM_BOT_TOKEN;
+  url += "/sendMessage";
+
+  JsonDocument doc;
+  doc["chat_id"] = TELEGRAM_CHAT_ID;
+  doc["text"] = message;
+  doc["disable_web_page_preview"] = true;
+
+  String body;
+  serializeJson(doc, body);
+
+  http.setTimeout(TELEGRAM_TIMEOUT_MS);
+  if (!http.begin(client, url)) {
+    Serial.println("Telegram API begin failed.");
+    return false;
+  }
+
+  http.addHeader("Content-Type", "application/json; charset=utf-8");
+  const int httpCode = http.POST(body);
+  http.end();
+
+  if (httpCode == HTTP_CODE_OK) {
+    Serial.println("Telegram notification sent.");
+    return true;
+  }
+
+  Serial.print("Telegram API HTTP error: ");
+  Serial.println(httpCode);
+  return false;
+}
+
+void notifyRelayChange(const char* label, bool relayState) {
+  String message = "ESP32 Relay Alert\n";
+  message += label;
+  message += relayState ? " -> ON" : " -> OFF";
+  sendTelegramMessage(message);
+}
+
+void notifyWeatherReport() {
+  String message = "ESP32 Weather Report\n";
+  message += PROVINCE_NAME;
+  message += ", ";
+  message += COUNTRY_CODE;
+  message += "\nWiFi: ";
+  message += WiFi.status() == WL_CONNECTED ? "OK" : "NO OK";
+  message += "\nTemp: ";
+  message += latestWeather.weatherReady && !isnan(latestWeather.temperature) ? String(latestWeather.temperature, 1) + " C" : "--.- C";
+  message += "\nHumidity: ";
+  message += latestWeather.weatherReady && latestWeather.humidity >= 0 ? String(latestWeather.humidity) + " %" : "-- %";
+  message += "\nAQI: ";
+  message += latestWeather.airReady && latestWeather.aqi > 0 ? String(latestWeather.aqi) + " (" + aqiText(latestWeather.aqi) + ")" : "-";
+  message += "\nPM2.5: ";
+  message += latestWeather.airReady && !isnan(latestWeather.pm25) ? String(latestWeather.pm25, 1) + " ug/m3" : "--.- ug/m3";
+  sendTelegramMessage(message);
+}
+
 void clearSavedWiFiSettings() {
   Serial.println("Resetting saved WiFi settings.");
   showMessage("Resetting WiFi", "settings...");
+  sendTelegramMessage("ESP32 WiFi settings reset.");
   wifiManager.resetSettings();
   WiFi.disconnect(true, true);
   delay(1000);
@@ -229,6 +315,7 @@ bool startWiFiManager() {
     Serial.print("WiFi connected, IP: ");
     Serial.println(WiFi.localIP());
     showMessage("WiFi connected", WiFi.localIP().toString().c_str());
+    sendTelegramMessage("ESP32 connected to WiFi.\nIP: " + WiFi.localIP().toString());
     delay(800);
     return true;
   }
@@ -264,6 +351,7 @@ void handleSwitch(int swPin, int &lastReading, int &stableState, unsigned long &
         Serial.print(label);
         Serial.println(relayState ? " -> ON" : " -> OFF");
         drawOled();
+        notifyRelayChange(label, relayState);
       }
     }
   }
@@ -291,6 +379,7 @@ void handleSw1() {
         digitalWrite(RELAY1_PIN, relay1State ? LOW : HIGH);
         Serial.println(relay1State ? "Relay 1 -> ON" : "Relay 1 -> OFF");
         drawOled();
+        notifyRelayChange("Relay 1", relay1State);
       }
     }
 
@@ -497,6 +586,12 @@ void readBangkokWeather() {
   Serial.println("Next read in 2 minutes.");
   Serial.println("================================");
   drawOled();
+
+  const unsigned long now = millis();
+  if ((now - lastTelegramWeather) >= TELEGRAM_WEATHER_INTERVAL_MS) {
+    lastTelegramWeather = now;
+    notifyWeatherReport();
+  }
 }
 
 void setup() {

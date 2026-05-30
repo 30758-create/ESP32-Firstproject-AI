@@ -1,33 +1,34 @@
-# ESP32 Weather, Air Quality, Relay และ WiFiManager
+# ESP32 Weather, Air Quality, Relay, WiFiManager และ Telegram
 
-เอกสารนี้อธิบายโปรเจกต์ PlatformIO สำหรับบอร์ด ESP32 DOIT DevKit V1 ที่อ่านข้อมูลสภาพอากาศและคุณภาพอากาศจาก OpenWeather API, แสดงผลบนจอ OLED SSD1306, ควบคุม Relay 3 ช่องด้วยปุ่มกด และตั้งค่า WiFi ผ่าน WiFiManager โดยไม่ต้องแก้ SSID/password ในโค้ดทุกครั้ง
+โปรเจกต์นี้เป็นโปรแกรมสำหรับบอร์ด ESP32 DOIT DevKit V1 ใช้ Arduino Framework บน PlatformIO เพื่ออ่านข้อมูลสภาพอากาศและคุณภาพอากาศจาก OpenWeather, แสดงผลบนจอ OLED SSD1306, ควบคุม Relay 3 ช่องด้วยปุ่มกด, ตั้งค่า WiFi ผ่าน WiFiManager และส่งการแจ้งเตือนไปยัง Telegram
 
-อัปเดตตามโค้ดปัจจุบัน ณ วันที่ 30 พฤษภาคม 2026
+เอกสารนี้อัปเดตตามโค้ดปัจจุบันใน `src/main.cpp`
 
-## ภาพรวมโปรเจกต์
+## ความสามารถหลัก
 
-โปรแกรมทำงานบน ESP32 ด้วย Arduino Framework มีหน้าที่หลักดังนี้
-
-- เชื่อมต่อ WiFi ด้วย WiFiManager
-- เปิด Access Point สำหรับตั้งค่า WiFi ชื่อ `ESP32-Weather-Setup` เมื่อยังไม่มี WiFi หรือเชื่อมต่อไม่สำเร็จ
+- เชื่อมต่อ WiFi ด้วย WiFiManager โดยไม่ต้อง hardcode SSID/password
+- เปิด Access Point ชื่อ `ESP32-Weather-Setup` เมื่อยังไม่มีค่า WiFi หรือจำเป็นต้องตั้งค่าใหม่
+- Reset ค่า WiFi ด้วยการกด `SW1` ค้าง 5 วินาที
 - อ่านข้อมูลอากาศของ `Bangkok, TH` จาก OpenWeather Current Weather API
-- อ่านข้อมูลคุณภาพอากาศจาก OpenWeather Air Pollution API
-- แสดงอุณหภูมิ, ความชื้น, AQI, PM2.5 และสถานะ Relay บนจอ OLED 128x64
-- ควบคุม Relay 3 ช่องด้วยปุ่ม `SW1`, `SW2`, `SW3`
-- ใช้ `SW1` กดค้าง 5 วินาทีเพื่อล้างค่า WiFi และเปิดหน้า WiFiManager ใหม่
+- อ่านข้อมูล AQI และ PM2.5 จาก OpenWeather Air Pollution API
+- แสดงข้อมูลบน OLED 128x64 ผ่าน I2C
+- ควบคุม Relay 3 ช่องด้วย `SW1`, `SW2`, `SW3`
+- ส่ง Telegram notification เมื่อ WiFi เชื่อมต่อ, reset WiFi, Relay เปลี่ยนสถานะ และส่งรายงานอากาศเป็นช่วงเวลา
 
 ## ฮาร์ดแวร์ที่ใช้
 
 - ESP32 DOIT DevKit V1
-- OLED I2C SSD1306 ขนาด 128x64 Address `0x3C`
-- Relay Module 3 ช่อง แบบ Active Low
-- ปุ่มกด 3 ปุ่ม แบบ Active Low พร้อม External Pull-up
-- สาย USB สำหรับ upload โปรแกรมและ Serial Monitor
-- แหล่งจ่ายไฟที่จ่ายกระแสได้เพียงพอ โดยเฉพาะเมื่อใช้ WiFi และ Relay พร้อมกัน
+- OLED I2C SSD1306 128x64 address `0x3C`
+- Relay module 3 ช่อง แบบ Active Low
+- ปุ่มกด 3 ปุ่ม แบบ Active Low พร้อม external pull-up
+- สาย USB สำหรับ upload และ Serial Monitor
+- แหล่งจ่ายไฟที่เหมาะสมกับ ESP32 และ Relay
 
-## การต่อขา
+รายละเอียดการต่อขาและข้อควรระวังฮาร์ดแวร์อยู่ใน [ESP32DevkitBoard.md](ESP32DevkitBoard.md)
 
-### OLED SSD1306 I2C
+## การต่อขาโดยสรุป
+
+### OLED I2C
 
 | OLED | ESP32 |
 | --- | --- |
@@ -36,31 +37,19 @@
 | `SDA` | `GPIO 21` |
 | `SCL` | `GPIO 22` |
 
-ค่าในโค้ด:
-
-```cpp
-const int OLED_SDA_PIN = 21;
-const int OLED_SCL_PIN = 22;
-const int OLED_ADDRESS = 0x3C;
-```
-
-ถ้าจอไม่ขึ้น อาจต้องตรวจ I2C address ของจอ บางรุ่นอาจเป็น `0x3D`
-
 ### Relay
 
-Relay ในโปรเจกต์นี้เป็นแบบ Active Low
+Relay เป็นแบบ Active Low
 
-| Relay | GPIO | สถานะ ON | สถานะ OFF |
+| Relay | GPIO | ON | OFF |
 | --- | ---: | --- | --- |
 | Relay 1 | `GPIO 17` | `LOW` | `HIGH` |
 | Relay 2 | `GPIO 16` | `LOW` | `HIGH` |
 | Relay 3 | `GPIO 4` | `LOW` | `HIGH` |
 
-เมื่อเริ่มโปรแกรม Relay ทั้งหมดจะถูกตั้งเป็น `HIGH` เพื่อปิด Relay ก่อน
-
 ### Switch
 
-ปุ่มกดเป็นแบบ Active Low
+Switch เป็นแบบ Active Low
 
 | Switch | GPIO | หน้าที่ |
 | --- | ---: | --- |
@@ -68,9 +57,9 @@ Relay ในโปรเจกต์นี้เป็นแบบ Active Low
 | `SW2` | `GPIO 35` | กดเพื่อสลับ Relay 2 |
 | `SW3` | `GPIO 32` | กดเพื่อสลับ Relay 3 |
 
-ข้อสำคัญ: `GPIO 34` และ `GPIO 35` ของ ESP32 เป็นขา input-only และไม่มี internal pull-up/pull-down ดังนั้นปุ่ม `SW1` และ `SW2` ต้องมี external pull-up ภายนอก ถ้าไม่มี อาจกดแล้วโปรแกรมไม่เห็นสถานะหรืออ่านค่าสัญญาณไม่นิ่ง
+ข้อสำคัญ: `GPIO 34` และ `GPIO 35` ไม่มี internal pull-up/pull-down จึงต้องมี external pull-up ภายนอก ไม่อย่างนั้นปุ่มอาจอ่านค่าไม่นิ่งหรือกดแล้วไม่ทำงาน
 
-## Library ที่เกี่ยวข้อง
+## Library ที่ใช้
 
 กำหนดไว้ใน `platformio.ini`
 
@@ -82,133 +71,52 @@ lib_deps =
   tzapu/WiFiManager
 ```
 
-รายละเอียดการใช้งานของแต่ละ library:
+Library หลัก:
 
-- `ArduinoJson`: แปลง JSON ที่ได้จาก OpenWeather API
+- `ArduinoJson`: อ่านและสร้าง JSON สำหรับ OpenWeather และ Telegram request
 - `Adafruit SSD1306`: ควบคุมจอ OLED SSD1306
-- `Adafruit GFX Library`: ไลบรารีกราฟิกพื้นฐานที่ SSD1306 ใช้งาน
-- `WiFiManager`: จัดการการตั้งค่า WiFi ผ่านหน้าเว็บ captive portal
-- `WiFi`, `HTTPClient`, `Wire`: ไลบรารีมาตรฐานของ Arduino ESP32 สำหรับ WiFi, HTTP และ I2C
+- `Adafruit GFX Library`: ฟังก์ชันวาดกราฟิกและข้อความบน OLED
+- `WiFiManager`: ตั้งค่า WiFi ผ่าน captive portal
+- `WiFi`, `HTTPClient`, `WiFiClientSecure`, `Wire`: library จาก Arduino ESP32 core สำหรับ WiFi, HTTP/HTTPS และ I2C
 
-## การทำงานของโปรแกรม
+## ค่าตั้งต้นสำคัญ
 
-เมื่อเปิดเครื่อง โปรแกรมจะทำงานตามลำดับนี้
-
-1. เริ่ม Serial Monitor ที่ `115200 baud`
-2. เริ่มจอ OLED
-3. ตั้งค่าขา Relay และ Switch
-4. ตรวจว่า `SW1` ถูกกดค้างตอนเปิดเครื่องหรือไม่
-5. ถ้ากด `SW1` ค้างครบ 5 วินาที จะล้างค่า WiFi ที่บันทึกไว้
-6. เริ่ม WiFiManager เพื่อเชื่อมต่อ WiFi
-7. อ่านข้อมูลอากาศและคุณภาพอากาศจาก OpenWeather
-8. แสดงข้อมูลบน OLED
-9. ใน `loop()` จะตรวจปุ่ม, refresh OLED, reconnect WiFi และอ่านข้อมูลใหม่ทุก 2 นาที
-
-## การตั้งค่า WiFi
-
-โปรเจกต์นี้ไม่ใช้ SSID/password แบบ hardcode แล้ว แต่ใช้ WiFiManager
-
-### ตั้งค่า WiFi ครั้งแรก
-
-1. Upload โปรแกรมลง ESP32
-2. เปิดเครื่อง ESP32
-3. ถ้ายังไม่มี WiFi ที่บันทึกไว้ ESP32 จะเปิด AP ชื่อ `ESP32-Weather-Setup`
-4. ใช้มือถือหรือคอมพิวเตอร์เชื่อมต่อ WiFi ชื่อนี้
-5. หน้าเว็บตั้งค่า WiFi จะเปิดขึ้นอัตโนมัติ หรือเข้าเองที่ `192.168.4.1`
-6. เลือก WiFi บ้าน/สำนักงาน และกรอกรหัสผ่าน
-7. ESP32 จะบันทึกค่า WiFi แล้วเชื่อมต่อเองในครั้งถัดไป
-
-### Reset WiFi ด้วย SW1
-
-ทำได้ 2 วิธี
-
-- ตอนเปิดเครื่อง: กด `SW1` ค้างไว้ แล้วเปิด/รีเซ็ต ESP32 ค้างให้ครบ 5 วินาที
-- ตอนโปรแกรมทำงานอยู่: กด `SW1` ค้างให้ครบ 5 วินาที
-
-เมื่อ reset สำเร็จ โปรแกรมจะล้าง WiFi เดิมและเปิด AP `ESP32-Weather-Setup` เพื่อให้ตั้งค่า WiFi ใหม่
-
-ใน Serial Monitor จะเห็นข้อความประมาณนี้:
-
-```text
-SW1 pressed. Hold 5 seconds to reset WiFi.
-SW1 held for 5 seconds. Reset WiFi now.
-Resetting saved WiFi settings.
-Starting WiFiManager.
-Config AP: ESP32-Weather-Setup
-```
-
-## การใช้งานปุ่มและ Relay
-
-- กด `SW1` สั้น ๆ เพื่อสลับ Relay 1
-- กด `SW2` เพื่อสลับ Relay 2
-- กด `SW3` เพื่อสลับ Relay 3
-- กด `SW1` ค้าง 5 วินาทีเพื่อ reset WiFi
-
-โปรแกรมมี debounce delay `50 ms` เพื่อลดปัญหาปุ่มเด้ง
-
-## ข้อมูลที่แสดงบน OLED
-
-หน้าจอ OLED แสดงข้อมูลหลักดังนี้
-
-- ชื่อจังหวัด: `Bangkok`
-- สถานะ WiFi: `WiFi OK` หรือ `NO WIFI`
-- อุณหภูมิ หน่วยองศาเซลเซียส
-- ความชื้น หน่วยเปอร์เซ็นต์
-- AQI จาก OpenWeather Air Pollution API
-- PM2.5
-- สถานะ Relay 1, Relay 2, Relay 3
-
-OLED refresh ทุก `1000 ms`
-
-## OpenWeather API
-
-โค้ดใช้ API key จากตัวแปรนี้ใน `src/main.cpp`
-
-```cpp
-const char* OPENWEATHER_API_KEY = "...";
-```
-
-ตำแหน่งที่อ่านข้อมูลถูกตั้งเป็น:
-
-```cpp
-const char* PROVINCE_NAME = "Bangkok";
-const char* COUNTRY_CODE = "TH";
-```
-
-โปรแกรมอ่านข้อมูลใหม่ทุก `120000 ms` หรือ 2 นาที
-
-หมายเหตุสำคัญ: ไม่ควรเผยแพร่ API key ลง repository สาธารณะ ถ้าจะนำโปรเจกต์ขึ้น GitHub ควรย้าย API key ไปไว้ในไฟล์ config ที่ไม่ commit หรือใช้ build flag/env แทน
+| ตัวแปร | ค่า | ความหมาย |
+| --- | --- | --- |
+| `PROVINCE_NAME` | `Bangkok` | เมืองที่ใช้ดึงข้อมูลอากาศ |
+| `COUNTRY_CODE` | `TH` | ประเทศ |
+| `WEATHER_INTERVAL_MS` | `120000UL` | อ่านข้อมูลอากาศทุก 2 นาที |
+| `WIFI_RETRY_INTERVAL_MS` | `10000UL` | ลอง reconnect WiFi ทุก 10 วินาที |
+| `OLED_REFRESH_MS` | `1000UL` | refresh OLED ทุก 1 วินาที |
+| `WIFI_RESET_HOLD_MS` | `5000UL` | เวลากด SW1 ค้างเพื่อ reset WiFi |
+| `TELEGRAM_TIMEOUT_MS` | `4000UL` | timeout การส่ง Telegram |
+| `TELEGRAM_WEATHER_INTERVAL_MS` | `600000UL` | ส่งรายงานอากาศ Telegram ทุก 10 นาที |
+| `WIFI_MANAGER_AP_NAME` | `ESP32-Weather-Setup` | ชื่อ AP สำหรับตั้งค่า WiFi |
 
 ## วิธีเปิดโปรเจกต์ด้วย VS Code
 
 1. ติดตั้ง Visual Studio Code
-2. ติดตั้ง Extension `PlatformIO IDE`
+2. ติดตั้ง extension `PlatformIO IDE`
 3. เปิด VS Code
 4. เลือก `File > Open Folder...`
-5. เลือกโฟลเดอร์โปรเจกต์นี้:
+5. เลือกโฟลเดอร์โปรเจกต์นี้
 
 ```text
 c:\Users\SMARTYYY\Documents\PlatformIO\Projects\ESP32-FIrstproject
 ```
 
 6. รอ PlatformIO โหลด environment และติดตั้ง library จาก `platformio.ini`
-7. เปิดไฟล์ `src/main.cpp` เพื่อดูหรือแก้โค้ด
+7. เปิด `src/main.cpp` เพื่อแก้ไขโปรแกรม
 
-## วิธี Build, Upload และเปิด Serial Monitor
+## วิธี Build, Upload และ Serial Monitor
 
-ใน VS Code ที่ติดตั้ง PlatformIO แล้ว สามารถใช้ปุ่มบน toolbar หรือเมนูของ PlatformIO ได้
+ใน VS Code สามารถใช้ปุ่มของ PlatformIO:
 
-- Build: กดปุ่ม `Build` หรือใช้คำสั่ง `PlatformIO: Build`
-- Upload: ต่อ ESP32 ผ่าน USB แล้วกด `Upload`
-- Serial Monitor: กด `Serial Monitor`
+- `Build`: compile โปรแกรม
+- `Upload`: upload firmware ลง ESP32
+- `Serial Monitor`: เปิด log ที่ baud rate `115200`
 
-Serial Monitor ใช้ความเร็ว:
-
-```ini
-monitor_speed = 115200
-```
-
-ถ้าใช้ terminal และมี PlatformIO CLI อยู่ใน PATH สามารถใช้คำสั่ง:
+หรือใช้ terminal ถ้ามี PlatformIO CLI:
 
 ```powershell
 pio run
@@ -216,76 +124,168 @@ pio run --target upload
 pio device monitor
 ```
 
-ถ้า `pio` ไม่อยู่ใน PATH บนเครื่องนี้อาจเรียกจาก path ของ PlatformIO โดยตรง:
+ถ้า `pio` ไม่อยู่ใน PATH บนเครื่องนี้สามารถเรียกจาก path ตรง:
 
 ```powershell
 & $env:USERPROFILE\.platformio\penv\Scripts\platformio.exe run
 ```
 
-## โครงสร้างไฟล์สำคัญ
+## การตั้งค่า WiFi
+
+โปรเจกต์นี้ใช้ WiFiManager
+
+### ตั้งค่า WiFi ครั้งแรก
+
+1. Upload โปรแกรมลง ESP32
+2. เปิดเครื่อง ESP32
+3. ถ้ายังไม่มีค่า WiFi บันทึกไว้ ESP32 จะเปิด AP ชื่อ `ESP32-Weather-Setup`
+4. ใช้มือถือหรือคอมพิวเตอร์เชื่อมต่อ AP นี้
+5. เข้า `192.168.4.1` ถ้าหน้าเว็บไม่เด้งขึ้นเอง
+6. เลือก WiFi 2.4 GHz และกรอกรหัสผ่าน
+7. ESP32 จะบันทึกค่า WiFi และใช้เชื่อมต่อครั้งต่อไป
+
+### Reset WiFi
+
+ทำได้ 2 แบบ:
+
+- ขณะเปิดเครื่อง: กด `SW1` ค้างไว้ แล้วเปิดหรือ reset ESP32 ค้างให้ครบ 5 วินาที
+- ขณะโปรแกรมทำงาน: กด `SW1` ค้าง 5 วินาที
+
+เมื่อ reset สำเร็จ ESP32 จะล้างค่า WiFi เดิมและเปิด AP `ESP32-Weather-Setup` ใหม่
+
+## การใช้งานปุ่ม
+
+- `SW1` กดสั้น: สลับ Relay 1
+- `SW1` กดค้าง 5 วินาที: reset WiFi
+- `SW2` กดสั้น: สลับ Relay 2
+- `SW3` กดสั้น: สลับ Relay 3
+
+โปรแกรมมี debounce `50 ms` เพื่อลดปัญหาสัญญาณปุ่มเด้ง
+
+## OLED Display
+
+ข้อมูลที่แสดงบนจอ:
+
+- เมือง `Bangkok`
+- สถานะ WiFi เป็น `WIFI OK` หรือ `WIFI NO OK`
+- อุณหภูมิ
+- ความชื้น
+- AQI
+- PM2.5
+- สถานะ Relay 1, Relay 2, Relay 3
+
+## OpenWeather API
+
+กำหนด API key ใน `src/main.cpp`
+
+```cpp
+const char* OPENWEATHER_API_KEY = "...";
+```
+
+ตำแหน่งที่อ่านข้อมูล:
+
+```cpp
+const char* PROVINCE_NAME = "Bangkok";
+const char* COUNTRY_CODE = "TH";
+```
+
+ข้อควรระวัง: ถ้าจะนำโปรเจกต์ขึ้น repository สาธารณะ ไม่ควรเผยแพร่ API key จริง ควรย้ายไป config ส่วนตัวหรือ build flag ที่ไม่ commit
+
+## Telegram Notification
+
+ตั้งค่าใน `src/main.cpp`
+
+```cpp
+const char* TELEGRAM_BOT_TOKEN = "PUT_YOUR_TELEGRAM_BOT_TOKEN_HERE";
+const char* TELEGRAM_CHAT_ID = "PUT_YOUR_TELEGRAM_CHAT_ID_HERE";
+```
+
+ถ้ายังไม่ได้แก้ค่า placeholder โปรแกรมจะข้ามการส่ง Telegram และพิมพ์ log:
+
+```text
+Telegram is not configured. Skip notification.
+```
+
+### วิธีหา Bot Token
+
+1. เปิด Telegram
+2. ค้นหา `@BotFather`
+3. ส่งคำสั่ง `/newbot`
+4. ตั้งชื่อ bot
+5. ตั้ง username ที่ลงท้ายด้วย `bot`
+6. นำ token ที่ BotFather ให้มาใส่ใน `TELEGRAM_BOT_TOKEN`
+
+### วิธีหา Chat ID
+
+1. เปิดแชตกับ bot ที่สร้าง
+2. กด Start หรือส่งข้อความหา bot เช่น `hello`
+3. เปิด URL นี้ โดยเปลี่ยน `<BOT_TOKEN>` เป็น token จริง
+
+```text
+https://api.telegram.org/bot<BOT_TOKEN>/getUpdates
+```
+
+4. หา `"chat":{"id":...}` แล้วนำเลข id ไปใส่ใน `TELEGRAM_CHAT_ID`
+
+### เหตุการณ์ที่ส่ง Telegram
+
+- WiFi เชื่อมต่อสำเร็จ
+- reset WiFi settings
+- Relay เปลี่ยนสถานะ
+- Weather/Air Quality report ทุก 10 นาที
+
+การส่ง Telegram ใช้ HTTPS ผ่าน `WiFiClientSecure` และส่งแบบ `POST JSON` เพื่อให้ข้อความอ่านได้ถูกต้อง
+
+## โครงสร้างไฟล์
 
 ```text
 .
 ├── src/
-│   └── main.cpp          # โค้ดหลักของ ESP32
-├── platformio.ini        # ตั้งค่า board, framework, monitor speed และ library
-├── .vscode/
-│   └── settings.json     # ปุ่ม toolbar ของ PlatformIO ใน VS Code
-└── README.md             # เอกสารโปรเจกต์
+│   └── main.cpp
+├── platformio.ini
+├── README.md
+├── ESP32DevkitBoard.md
+├── include/
+├── lib/
+└── test/
 ```
 
-## ค่าคงที่สำคัญในโปรแกรม
-
-| ตัวแปร | ค่า | ความหมาย |
-| --- | --- | --- |
-| `WEATHER_INTERVAL_MS` | `120000UL` | อ่านอากาศทุก 2 นาที |
-| `WIFI_RETRY_INTERVAL_MS` | `10000UL` | retry WiFi ทุก 10 วินาที |
-| `OLED_REFRESH_MS` | `1000UL` | refresh OLED ทุก 1 วินาที |
-| `WIFI_RESET_HOLD_MS` | `5000UL` | เวลากด SW1 ค้างเพื่อ reset WiFi |
-| `WIFI_MANAGER_AP_NAME` | `ESP32-Weather-Setup` | ชื่อ AP ของ WiFiManager |
-
 ## การแก้ปัญหาเบื้องต้น
+
+### OLED ขึ้นข้อความไม่ครบ
+
+- ตรวจว่าใช้โค้ดล่าสุดที่ขยับข้อความ WiFi ไปที่ `x = 68`
+- ถ้าปรับข้อความเอง ให้ระวังความกว้างจอ OLED มีเพียง 128 pixels
 
 ### กด SW1 ค้างแล้วไม่ reset WiFi
 
 - เปิด Serial Monitor ที่ `115200`
-- กด `SW1` แล้วดูว่ามีข้อความ `SW1 pressed. Hold 5 seconds to reset WiFi.` หรือไม่
-- ถ้าไม่มีข้อความ ให้ตรวจ wiring ของ `SW1`
-- ตรวจว่า `GPIO 34` มี external pull-up แล้วหรือยัง เพราะขานี้ไม่มี internal pull-up
-- ตรวจ logic ของปุ่มว่าตอนกดเป็น `LOW` จริงหรือไม่
-
-### OLED ไม่แสดงผล
-
-- ตรวจสาย `SDA = GPIO 21`, `SCL = GPIO 22`
-- ตรวจไฟเลี้ยงและ GND
-- ตรวจ I2C address ว่าเป็น `0x3C` หรือ `0x3D`
-- ดู Serial Monitor ว่ามีข้อความ `OLED init failed. Check wiring/address 0x3C.` หรือไม่
+- กด SW1 แล้วควรเห็น `SW1 pressed. Hold 5 seconds to reset WiFi.`
+- ถ้าไม่เห็น ให้ตรวจ wiring และ external pull-up ของ `GPIO 34`
+- ตรวจว่าปุ่มเป็น Active Low จริงหรือไม่
 
 ### ต่อ WiFi ไม่ได้
 
-- กด `SW1` ค้าง 5 วินาทีเพื่อ reset WiFi
-- เชื่อมต่อ AP `ESP32-Weather-Setup`
-- เข้า `192.168.4.1` แล้วตั้งค่า WiFi ใหม่
-- ตรวจว่า WiFi เป็นย่าน 2.4 GHz เพราะ ESP32 ไม่รองรับ WiFi 5 GHz
+- ESP32 รองรับ WiFi 2.4 GHz เท่านั้น
+- reset WiFi ด้วย SW1 แล้วตั้งค่าใหม่ผ่าน AP `ESP32-Weather-Setup`
+- ตรวจรหัสผ่าน WiFi
 
-### อ่านอากาศไม่ได้
+### Telegram ไม่ส่ง
 
-- ตรวจว่า ESP32 ต่อ WiFi แล้ว
-- ตรวจว่า OpenWeather API key ยังใช้งานได้
-- ตรวจ Serial Monitor ว่ามี HTTP error หรือ JSON error หรือไม่
-- ตรวจว่าอินเทอร์เน็ตของ WiFi ที่เชื่อมต่อสามารถออกเว็บได้
+- ตรวจ `TELEGRAM_BOT_TOKEN` และ `TELEGRAM_CHAT_ID`
+- ต้องส่งข้อความหา bot อย่างน้อย 1 ครั้งก่อนใช้ `getUpdates`
+- ตรวจว่า ESP32 ต่อ internet ได้
+- ดู Serial Monitor ว่ามี `Telegram API HTTP error` หรือไม่
 
-## ข้อควรระวัง
+### ข้อมูล Telegram มาช้า
 
-- GPIO ของ ESP32 ใช้ logic 3.3V ไม่ควรป้อน 5V เข้าขา GPIO โดยตรง
-- Relay module บางรุ่นใช้ไฟ 5V และอาจต้องแยกไฟเลี้ยงให้เหมาะสม
-- ถ้าใช้ Relay ควบคุมไฟบ้านหรือโหลด AC ต้องระวังอันตรายจากไฟฟ้าแรงสูง และควรแยกวงจรให้ปลอดภัย
-- ไม่ควรเผยแพร่ OpenWeather API key สู่สาธารณะ
-- `GPIO 34` และ `GPIO 35` เป็น input-only และไม่มี internal pull-up/pull-down
+- Telegram ใช้ HTTPS จึงอาจมี delay จาก TLS handshake และ internet
+- โค้ดตั้ง timeout ไว้ `4000 ms`
+- Weather report ส่งทุก 10 นาที เพื่อลดการถ่วงระบบ
 
-## สถานะการ Build ล่าสุด
+## สถานะ Build ล่าสุด
 
-โปรเจกต์ build ผ่านด้วย PlatformIO environment:
+โปรเจกต์ build ผ่านด้วย environment:
 
 ```ini
 [env:esp32doit-devkit-v1]
@@ -293,10 +293,4 @@ platform = espressif32
 board = esp32doit-devkit-v1
 framework = arduino
 monitor_speed = 115200
-```
-
-ผล build ล่าสุด:
-
-```text
-[SUCCESS]
 ```
