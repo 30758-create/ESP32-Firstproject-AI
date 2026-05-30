@@ -66,3 +66,71 @@
 ### หลักการทำงานของ Switch
 1.  **สถานะกด (Pressed):** สัญญาณจะเป็น `LOW` (0)
 2.  **สถานะปล่อย (Released):** สัญญาณจะเป็น `HIGH` (1) เนื่องจากมี External Pull-up ดึงแรงดันไว้
+## การเชื่อมต่อ OLED 0.96 นิ้ว แบบ I2C
+
+OLED 0.96 นิ้ว แบบ I2C ที่ใช้กับ ESP32 Devkit ส่วนใหญ่เป็นจอความละเอียด `128x64` พิกเซล ใช้ชิปควบคุม `SSD1306` และสื่อสารผ่านบัส I2C จึงใช้สายสัญญาณเพียง 2 เส้นคือ `SDA` และ `SCL`
+
+### ขาที่แนะนำสำหรับ ESP32 Devkit
+
+| ขา OLED I2C | ต่อกับ ESP32 Devkit | รายละเอียด |
+| :--- | :---: | :--- |
+| `VCC` | `3V3` | แนะนำให้ใช้ไฟ 3.3V เพื่อให้ระดับสัญญาณเข้ากับ ESP32 |
+| `GND` | `GND` | กราวด์ร่วม |
+| `SDA` | `GPIO 21` | ขา I2C Data ค่าเริ่มต้นของ ESP32 |
+| `SCL` | `GPIO 22` | ขา I2C Clock ค่าเริ่มต้นของ ESP32 |
+
+### ค่า I2C Address ที่พบบ่อย
+
+*   `0x3C` ใช้บ่อยที่สุดกับ OLED 0.96 นิ้ว SSD1306
+*   `0x3D` พบได้บางรุ่น
+
+หากจอไม่แสดงผล ให้ลองสแกน I2C address ก่อน หรือเปลี่ยนค่า address จาก `0x3C` เป็น `0x3D`
+
+### Library ที่แนะนำสำหรับ PlatformIO
+
+เพิ่ม library ใน `platformio.ini`:
+
+```ini
+lib_deps =
+  adafruit/Adafruit SSD1306
+  adafruit/Adafruit GFX Library
+```
+
+หากมี `lib_deps` เดิมอยู่แล้ว ให้เพิ่มสองบรรทัดนี้ต่อท้ายรายการเดิม ไม่ต้องสร้าง `lib_deps` ซ้ำ
+
+### ตัวอย่างการเริ่มต้นใช้งานใน Arduino Framework
+
+```cpp
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET -1
+#define OLED_ADDRESS 0x3C
+
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+void setup() {
+  Wire.begin(21, 22);
+
+  if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDRESS)) {
+    Serial.println("OLED init failed");
+    return;
+  }
+
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 0);
+  display.println("ESP32 OLED Ready");
+  display.display();
+}
+```
+
+### ข้อควรระวัง
+
+*   ESP32 ใช้ logic level 3.3V จึงควรใช้ OLED ที่รองรับ 3.3V หรือมีวงจร level shifting บนโมดูล
+*   ถ้าใช้สายยาวเกินไป อาจทำให้ I2C สื่อสารไม่เสถียร ควรใช้สายสั้นและต่อกราวด์ให้แน่น
+*   GPIO 21 และ GPIO 22 เป็นค่า I2C default ที่นิยมใช้ แต่สามารถเปลี่ยนได้ด้วย `Wire.begin(SDA_PIN, SCL_PIN)`

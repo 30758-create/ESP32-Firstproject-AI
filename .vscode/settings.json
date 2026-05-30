@@ -1,0 +1,24 @@
+{
+  "platformio-ide.toolbar": [
+    {
+      "text": "$(arrow-right)",
+      "tooltip": "Upload and Monitor",
+      "commands": "platformio-ide.uploadAndMonitor"
+    },
+    {
+      "text": "$(check)",
+      "tooltip": "Build",
+      "commands": "platformio-ide.build"
+    },
+    {
+      "text": "$(plug)",
+      "tooltip": "Serial Monitor",
+      "commands": "platformio-ide.serialMonitor"
+    },
+    {
+      "text": "$(home)",
+      "tooltip": "PlatformIO Home",
+      "commands": "platformio-ide.showHome"
+    }
+  ]
+}
