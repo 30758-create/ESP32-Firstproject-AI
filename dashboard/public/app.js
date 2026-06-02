@@ -386,10 +386,16 @@ function setStatus(id, label, isOn) {
 }
 
 async function sendRelayCommand(relayId, command) {
-  const buttons = relayList.querySelectorAll("button");
-  buttons.forEach((button) => {
-    button.disabled = true;
-  });
+  const relay = relays.find((item) => item.id === relayId);
+  const previousRelayState = latestState?.relay ? { ...latestState.relay } : null;
+
+  if (relay && latestState?.relay) {
+    const currentValue = latestState.relay[relay.key] || "OFF";
+    latestState.relay[relay.key] = command === "TOGGLE"
+      ? (currentValue === "ON" ? "OFF" : "ON")
+      : command;
+    renderState(latestState);
+  }
 
   try {
     const response = await fetch(`/api/relay/${relayId}?command=${encodeURIComponent(command)}`, {
@@ -402,11 +408,11 @@ async function sendRelayCommand(relayId, command) {
       throw new Error(data.error || "Command failed");
     }
   } catch (error) {
+    if (previousRelayState && latestState?.relay) {
+      latestState.relay = previousRelayState;
+      renderState(latestState);
+    }
     alert(error.message);
-  } finally {
-    buttons.forEach((button) => {
-      button.disabled = false;
-    });
   }
 }
 

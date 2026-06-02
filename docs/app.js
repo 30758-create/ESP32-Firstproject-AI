@@ -499,15 +499,28 @@ function updateStateFromMqtt(topic, payload) {
 function publish(topic, message) {
   if (!mqttClient?.connected) {
     alert("MQTT is not connected yet.");
-    return;
+    return false;
   }
 
   mqttClient.publish(topic, message);
+  return true;
 }
 
 function sendRelayCommand(relayId, command) {
   const topic = `${BOARD_TOPIC}/control/relay/${relayId}/set`;
-  publish(topic, command);
+  if (!publish(topic, command)) {
+    return;
+  }
+
+  const relay = relays.find((item) => item.id === relayId);
+  if (relay) {
+    const currentValue = state.relay?.[relay.key] || "OFF";
+    state.relay[relay.key] = command === "TOGGLE"
+      ? (currentValue === "ON" ? "OFF" : "ON")
+      : command;
+    renderState();
+  }
+
   addEvent(`Relay ${relayId} command: ${command}`);
 }
 
