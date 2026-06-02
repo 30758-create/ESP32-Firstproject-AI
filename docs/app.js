@@ -72,7 +72,6 @@ async function verifyAccess(event) {
     return;
   }
 
-  sessionStorage.setItem("missionControlUnlocked", "1");
   startApp();
 }
 
@@ -309,8 +308,4 @@ setInterval(() => {
 wifiManagerButton.addEventListener("click", sendWifiManagerCommand);
 accessForm.addEventListener("submit", verifyAccess);
 
-if (sessionStorage.getItem("missionControlUnlocked") === "1") {
-  startApp();
-} else {
-  accessPin.focus();
-}
+accessPin.focus();
