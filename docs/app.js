@@ -526,22 +526,23 @@ function renderRelays() {
 
   for (const relay of relays) {
     const value = state.relay?.[relay.key] || "OFF";
+    const isOn = value === "ON";
+    const nextCommand = isOn ? "OFF" : "ON";
     const row = document.createElement("div");
-    row.className = "relay-row";
+    row.className = `relay-row ${isOn ? "relay-row-on" : ""}`;
     row.innerHTML = `
       <div class="relay-name">
+        <span class="relay-dot"></span>
         <span>${relay.name}</span>
-        <span class="relay-state ${value === "ON" ? "on" : ""}">${value}</span>
+        <span class="relay-state ${isOn ? "on" : ""}">${isOn ? "เปิดอยู่" : "ปิดอยู่"}</span>
       </div>
-      <div class="relay-actions">
-        <button class="btn-on" data-command="ON">ON</button>
-        <button class="btn-off" data-command="OFF">OFF</button>
-        <button class="btn-toggle" data-command="TOGGLE">TOGGLE</button>
-      </div>
+      <button class="btn-relay-switch ${isOn ? "is-on" : ""}" data-command="${nextCommand}">
+        ${isOn ? "ปิด" : "เปิด"}
+      </button>
     `;
 
-    row.querySelectorAll("button").forEach((button) => {
-      button.addEventListener("click", () => sendRelayCommand(relay.id, button.dataset.command));
+    row.querySelector("button").addEventListener("click", (event) => {
+      sendRelayCommand(relay.id, event.currentTarget.dataset.command);
     });
 
     relayList.appendChild(row);
