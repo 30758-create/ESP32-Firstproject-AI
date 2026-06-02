@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ESP32 OpenWeather Station</title>
+    <link rel="stylesheet" href="/style.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>ESP32 OpenWeather Station</h1>
+        <p id="boardId">esp32-weather-001</p>
+      </div>
+      <div class="status-pills">
+        <span id="mqttStatus" class="pill pill-off">MQTT</span>
+        <span id="stationStatus" class="pill pill-off">Station</span>
+      </div>
+    </header>
+
+    <main class="shell">
+      <section class="metrics-grid" aria-label="weather readings">
+        <article class="metric-panel">
+          <span class="label">Temperature</span>
+          <strong id="temperature">--.-</strong>
+          <span class="unit">C</span>
+        </article>
+        <article class="metric-panel">
+          <span class="label">Humidity</span>
+          <strong id="humidity">--</strong>
+          <span class="unit">%</span>
+        </article>
+        <article class="metric-panel">
+          <span class="label">AQI</span>
+          <strong id="aqi">-</strong>
+          <span id="aqiText" class="unit">Unknown</span>
+        </article>
+        <article class="metric-panel">
+          <span class="label">PM2.5</span>
+          <strong id="pm25">--.-</strong>
+          <span class="unit">ug/m3</span>
+        </article>
+      </section>
+
+      <section class="content-grid">
+        <section class="panel">
+          <div class="panel-title">
+            <h2>Relay Control</h2>
+            <span id="relayUpdated">Waiting</span>
+          </div>
+          <div id="relayList" class="relay-list"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-title">
+            <h2>WiFi</h2>
+            <span id="wifiState">NO OK</span>
+          </div>
+          <button id="wifiManagerButton" class="wifi-manager-button" type="button">WiFi Manager</button>
+          <dl class="info-list">
+            <div>
+              <dt>IP</dt>
+              <dd id="ipAddress">-</dd>
+            </div>
+            <div>
+              <dt>RSSI</dt>
+              <dd id="rssi">-</dd>
+            </div>
+            <div>
+              <dt>Time</dt>
+              <dd id="stationTime">--:--:--</dd>
+            </div>
+            <div>
+              <dt>Uptime</dt>
+              <dd id="uptime">-</dd>
+            </div>
+          </dl>
+        </section>
+
+        <section class="panel activity-panel">
+          <div class="panel-title">
+            <h2>Activity</h2>
+            <span id="lastMessage">No data</span>
+          </div>
+          <ol id="events" class="events"></ol>
+        </section>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

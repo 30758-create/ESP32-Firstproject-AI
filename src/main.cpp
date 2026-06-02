@@ -89,6 +89,7 @@ void notifyRelayChange(const char* label, bool relayState);
 void publishRelayTelemetry();
 void publishStatusTelemetry();
 void publishWeatherTelemetry();
+void resetWiFiAndStartPortal();
 
 String currentTimeText() {
   struct tm timeInfo;
@@ -376,6 +377,22 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   Serial.print(topicText);
   Serial.print(" = ");
   Serial.println(payloadText);
+
+  const String wifiManagerTopic = mqttTopic("control/wifi/manager");
+  if (topicText == wifiManagerTopic) {
+    String command = payloadText;
+    command.trim();
+    command.toUpperCase();
+
+    if (command == "START" || command == "RESET" || command == "1" || command == "TRUE") {
+      Serial.println("MQTT WiFi Manager command received.");
+      resetWiFiAndStartPortal();
+    } else {
+      Serial.print("Unknown MQTT WiFi Manager command: ");
+      Serial.println(payloadText);
+    }
+    return;
+  }
 
   const String prefix = mqttTopic("control/relay/");
   if (!topicText.startsWith(prefix)) {

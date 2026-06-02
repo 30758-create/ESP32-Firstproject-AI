@@ -1,0 +1,12 @@
+{
+  "name": "esp32-openweather-dashboard",
+  "version": "1.0.0",
+  "description": "Local dashboard for ESP32 OpenWeather Station MQTT telemetry and relay control.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "mqtt": "^5.10.4"
+  }
+}
