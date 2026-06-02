@@ -10,12 +10,32 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
-const char* BOARD_ID = "esp32-weather-001";
-const char* OPENWEATHER_API_KEY = "1f61d24ccd551214bcbc61c408cb65bd";
+#if __has_include("../include/private_config.h")
+#include "../include/private_config.h"
+#endif
+
+#ifndef BOARD_ID_VALUE
+#define BOARD_ID_VALUE "esp32-weather-smartyyy-8f42"
+#endif
+
+#ifndef OPENWEATHER_API_KEY_VALUE
+#define OPENWEATHER_API_KEY_VALUE "PUT_YOUR_OPENWEATHER_API_KEY_HERE"
+#endif
+
+#ifndef TELEGRAM_BOT_TOKEN_VALUE
+#define TELEGRAM_BOT_TOKEN_VALUE "PUT_YOUR_TELEGRAM_BOT_TOKEN_HERE"
+#endif
+
+#ifndef TELEGRAM_CHAT_ID_VALUE
+#define TELEGRAM_CHAT_ID_VALUE "PUT_YOUR_TELEGRAM_CHAT_ID_HERE"
+#endif
+
+const char* BOARD_ID = BOARD_ID_VALUE;
+const char* OPENWEATHER_API_KEY = OPENWEATHER_API_KEY_VALUE;
 const char* PROVINCE_NAME = "Bangkok";
 const char* COUNTRY_CODE = "TH";
-const char* TELEGRAM_BOT_TOKEN = "8979674098:AAFkjLStVFABc05k5YuhvpGyj78OIcPhq_o";
-const char* TELEGRAM_CHAT_ID = "8692538195";
+const char* TELEGRAM_BOT_TOKEN = TELEGRAM_BOT_TOKEN_VALUE;
+const char* TELEGRAM_CHAT_ID = TELEGRAM_CHAT_ID_VALUE;
 const unsigned long WEATHER_INTERVAL_MS = 120000UL;
 const unsigned long WIFI_RETRY_INTERVAL_MS = 10000UL;
 const unsigned long OLED_REFRESH_MS = 1000UL;

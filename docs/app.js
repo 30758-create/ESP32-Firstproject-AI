@@ -1,5 +1,5 @@
 const MQTT_URL = "wss://broker.hivemq.com:8884/mqtt";
-const BOARD_ID = "esp32-weather-001";
+const BOARD_ID = "esp32-weather-smartyyy-8f42";
 const MQTT_BASE_TOPIC = "esp32/weather";
 const BOARD_TOPIC = `${MQTT_BASE_TOPIC}/${BOARD_ID}`;
 const STALE_AFTER_MS = 90000;

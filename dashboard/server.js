@@ -5,7 +5,7 @@ const mqtt = require("mqtt");
 
 const PORT = Number(process.env.PORT || 3000);
 const MQTT_URL = process.env.MQTT_URL || "mqtt://broker.hivemq.com:1883";
-const BOARD_ID = process.env.BOARD_ID || "esp32-weather-001";
+const BOARD_ID = process.env.BOARD_ID || "esp32-weather-smartyyy-8f42";
 const MQTT_BASE_TOPIC = process.env.MQTT_BASE_TOPIC || "esp32/weather";
 const DASHBOARD_PIN = process.env.DASHBOARD_PIN || "";
 const BOARD_TOPIC = `${MQTT_BASE_TOPIC}/${BOARD_ID}`;
