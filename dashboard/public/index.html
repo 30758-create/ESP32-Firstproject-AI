@@ -13,10 +13,40 @@
         <p id="boardId">esp32-weather-001</p>
       </div>
       <div class="status-pills">
+        <div class="timezone-control">
+          <span class="timezone-icon">TZ</span>
+          <button id="timezoneOpenButton" class="timezone-open-button" type="button">
+            <span id="timezoneCurrent">Bangkok</span>
+          </button>
+          <select id="timezoneSelect" class="timezone-select sr-only" aria-label="clock timezone">
+            <option value="Asia/Bangkok">Bangkok</option>
+            <option value="Asia/Tokyo">Tokyo</option>
+            <option value="Asia/Singapore">Singapore</option>
+            <option value="Europe/London">London</option>
+            <option value="America/New_York">New York</option>
+            <option value="UTC">UTC</option>
+          </select>
+        </div>
+        <span id="liveClock" class="clock-pill">--:--:--</span>
         <span id="mqttStatus" class="pill pill-off">MQTT</span>
         <span id="stationStatus" class="pill pill-off">Station</span>
       </div>
     </header>
+
+    <section id="globeOverlay" class="globe-overlay hidden" aria-label="timezone globe">
+      <canvas id="globeCanvas"></canvas>
+      <div class="globe-shade"></div>
+      <div class="globe-panel">
+        <div class="globe-panel-head">
+          <div>
+            <span class="label">Timezone Navigator</span>
+            <h2>Choose Your World Clock</h2>
+          </div>
+          <button id="globeCloseButton" class="globe-close-button" type="button">Close</button>
+        </div>
+        <div id="timezoneOptions" class="timezone-options"></div>
+      </div>
+    </section>
 
     <main class="shell">
       <section class="metrics-grid" aria-label="weather readings">
@@ -87,6 +117,8 @@
       </section>
     </main>
 
+    <script src="https://unpkg.com/three@0.133.1/build/three.min.js"></script>
+    <script src="https://unpkg.com/three@0.133.1/examples/js/loaders/GLTFLoader.js"></script>
     <script src="/app.js"></script>
   </body>
 </html>
