@@ -4,7 +4,7 @@ const MQTT_BASE_TOPIC = "esp32/weather";
 const BOARD_TOPIC = `${MQTT_BASE_TOPIC}/${BOARD_ID}`;
 const STALE_AFTER_MS = 90000;
 const ACCESS_PIN_SHA256 = "48abb45519bafd93fc621be74eb9b456639e77f21431ac8baec36eb79f54d2a0";
-const EARTH_MODEL_URL = "https://solarsystem.nasa.gov/rails/active_storage/blobs/redirect/eyJfcmFpbHMiOnsibWVzc2FnZSI6IkJBaHBBaTBSIiwiZXhwIjpudWxsLCJwdXIiOiJibG9iX2lkIn19--7c1183d35fdc9e4b5143c8601376552b89b5d99f/Earth_1_12756.glb?disposition=inline";
+const EARTH_MODEL_URL = "../assets/Earth_1_12756.glb";
 
 const relayList = document.getElementById("relayList");
 const wifiManagerButton = document.getElementById("wifiManagerButton");

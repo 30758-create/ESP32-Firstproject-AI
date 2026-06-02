@@ -9,7 +9,7 @@ const globeOverlay = document.getElementById("globeOverlay");
 const globeCanvas = document.getElementById("globeCanvas");
 const globeCloseButton = document.getElementById("globeCloseButton");
 const timezoneOptions = document.getElementById("timezoneOptions");
-const EARTH_MODEL_URL = "https://solarsystem.nasa.gov/rails/active_storage/blobs/redirect/eyJfcmFpbHMiOnsibWVzc2FnZSI6IkJBaHBBaTBSIiwiZXhwIjpudWxsLCJwdXIiOiJibG9iX2lkIn19--7c1183d35fdc9e4b5143c8601376552b89b5d99f/Earth_1_12756.glb?disposition=inline";
+const EARTH_MODEL_URL = "/assets/Earth_1_12756.glb";
 const relays = [
   { id: 1, key: "relay1", name: "Relay 1" },
   { id: 2, key: "relay2", name: "Relay 2" },
