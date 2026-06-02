@@ -3,9 +3,14 @@ const BOARD_ID = "esp32-weather-smartyyy-8f42";
 const MQTT_BASE_TOPIC = "esp32/weather";
 const BOARD_TOPIC = `${MQTT_BASE_TOPIC}/${BOARD_ID}`;
 const STALE_AFTER_MS = 90000;
+const ACCESS_PIN_SHA256 = "48abb45519bafd93fc621be74eb9b456639e77f21431ac8baec36eb79f54d2a0";
 
 const relayList = document.getElementById("relayList");
 const wifiManagerButton = document.getElementById("wifiManagerButton");
+const accessGate = document.getElementById("accessGate");
+const accessForm = document.getElementById("accessForm");
+const accessPin = document.getElementById("accessPin");
+const accessError = document.getElementById("accessError");
 const relays = [
   { id: 1, key: "relay1", name: "Relay 1" },
   { id: 2, key: "relay2", name: "Relay 2" },
@@ -34,6 +39,42 @@ const state = {
 };
 
 let mqttClient = null;
+let appStarted = false;
+
+async function sha256(text) {
+  const data = new TextEncoder().encode(text);
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function startApp() {
+  if (appStarted) {
+    return;
+  }
+
+  appStarted = true;
+  accessGate.classList.add("hidden");
+  renderState();
+  connectMqtt();
+}
+
+async function verifyAccess(event) {
+  event.preventDefault();
+  accessError.textContent = "";
+
+  const enteredHash = await sha256(accessPin.value);
+  if (enteredHash !== ACCESS_PIN_SHA256) {
+    accessError.textContent = "Invalid PIN";
+    accessPin.value = "";
+    accessPin.focus();
+    return;
+  }
+
+  sessionStorage.setItem("missionControlUnlocked", "1");
+  startApp();
+}
 
 function addEvent(message) {
   state.events.unshift({
@@ -266,5 +307,10 @@ setInterval(() => {
 }, 15000);
 
 wifiManagerButton.addEventListener("click", sendWifiManagerCommand);
-renderState();
-connectMqtt();
+accessForm.addEventListener("submit", verifyAccess);
+
+if (sessionStorage.getItem("missionControlUnlocked") === "1") {
+  startApp();
+} else {
+  accessPin.focus();
+}

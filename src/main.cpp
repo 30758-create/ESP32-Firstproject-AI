@@ -470,7 +470,7 @@ void publishWeatherTelemetry() {
   } else {
     weatherDoc["humidity_percent"] = nullptr;
   }
-  publishMqttJson("telemetry/weather", weatherDoc);
+  publishMqttJson("telemetry/weather", weatherDoc, true);
 
   JsonDocument airDoc;
   airDoc["board_id"] = BOARD_ID;
@@ -484,7 +484,7 @@ void publishWeatherTelemetry() {
   } else {
     airDoc["pm25_ugm3"] = nullptr;
   }
-  publishMqttJson("telemetry/air", airDoc);
+  publishMqttJson("telemetry/air", airDoc, true);
 }
 
 void publishMqttOnlineStatus(bool isOnline) {
