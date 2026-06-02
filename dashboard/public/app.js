@@ -9,7 +9,7 @@ const globeOverlay = document.getElementById("globeOverlay");
 const globeCanvas = document.getElementById("globeCanvas");
 const globeCloseButton = document.getElementById("globeCloseButton");
 const timezoneOptions = document.getElementById("timezoneOptions");
-const EARTH_MODEL_URL = "/assets/Earth_1_12756.glb";
+const EARTH_TEXTURE_URL = "assets/earth_atmos_2048.jpg";
 const relays = [
   { id: 1, key: "relay1", name: "Relay 1" },
   { id: 2, key: "relay2", name: "Relay 2" },
@@ -34,7 +34,7 @@ let globeRaycaster = null;
 let globePointer = null;
 let globeMarkers = [];
 let globeDragDistance = 0;
-let globeFallbackShell = null;
+let globeShell = null;
 
 const timezoneChoices = [
   { value: "Asia/Bangkok", label: "Bangkok", region: "Thailand", lat: 13.75, lon: 100.5 },
@@ -128,47 +128,48 @@ function latLonToVector3(lat, lon, radius) {
   );
 }
 
-function fitModelToGlobe(model, radius) {
-  const box = new THREE.Box3().setFromObject(model);
-  const size = box.getSize(new THREE.Vector3());
-  const center = box.getCenter(new THREE.Vector3());
-  const maxSize = Math.max(size.x, size.y, size.z) || 1;
-  const scale = (radius * 2) / maxSize;
-
-  model.position.sub(center);
-  model.scale.setScalar(scale);
+function addOrbitRing(radius, tiltX, tiltY, color, opacity) {
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(radius, 0.006, 8, 128),
+    new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false })
+  );
+  ring.rotation.x = tiltX;
+  ring.rotation.y = tiltY;
+  globeGroup.add(ring);
 }
 
-function loadEarthModel() {
-  if (!THREE.GLTFLoader) {
-    return;
+function addDataArc(fromChoice, toChoice, color) {
+  const from = latLonToVector3(fromChoice.lat, fromChoice.lon, 1.74);
+  const to = latLonToVector3(toChoice.lat, toChoice.lon, 1.74);
+  const mid = from.clone().add(to).normalize().multiplyScalar(2.18);
+  const curve = new THREE.QuadraticBezierCurve3(from, mid, to);
+  const geometry = new THREE.BufferGeometry().setFromPoints(curve.getPoints(42));
+  const arc = new THREE.Line(
+    geometry,
+    new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.46 })
+  );
+  globeGroup.add(arc);
+}
+
+function addStarField() {
+  const positions = [];
+  for (let i = 0; i < 420; i++) {
+    const radius = 3.2 + Math.random() * 1.2;
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(Math.random() * 2 - 1);
+    positions.push(
+      radius * Math.sin(phi) * Math.cos(theta),
+      radius * Math.cos(phi),
+      radius * Math.sin(phi) * Math.sin(theta)
+    );
   }
 
-  const loader = new THREE.GLTFLoader();
-  loader.load(
-    EARTH_MODEL_URL,
-    (gltf) => {
-      const model = gltf.scene;
-      fitModelToGlobe(model, 1.65);
-      model.traverse((child) => {
-        if (child.isMesh) {
-          child.frustumCulled = true;
-          if (child.material) {
-            child.material.roughness = Math.min(child.material.roughness ?? 0.8, 0.82);
-            child.material.metalness = 0.02;
-          }
-        }
-      });
-      globeGroup.add(model);
-      if (globeFallbackShell) {
-        globeFallbackShell.visible = false;
-      }
-    },
-    undefined,
-    (error) => {
-      console.warn(`Earth model failed: ${error.message}`);
-    }
-  );
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  globeScene.add(new THREE.Points(
+    geometry,
+    new THREE.PointsMaterial({ color: 0x8be9ff, size: 0.012, transparent: true, opacity: 0.42 })
+  ));
 }
 
 function initGlobe() {
@@ -181,6 +182,9 @@ function initGlobe() {
   if (THREE.SRGBColorSpace) {
     globeRenderer.outputColorSpace = THREE.SRGBColorSpace;
   }
+  if (THREE.sRGBEncoding) {
+    globeRenderer.outputEncoding = THREE.sRGBEncoding;
+  }
 
   globeScene = new THREE.Scene();
   globeCamera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
@@ -189,21 +193,26 @@ function initGlobe() {
   globeGroup = new THREE.Group();
   globeScene.add(globeGroup);
 
-  globeFallbackShell = new THREE.Mesh(
-    new THREE.SphereGeometry(1.65, 48, 32),
+  addStarField();
+
+  const textureLoader = new THREE.TextureLoader();
+  const earthTexture = textureLoader.load(EARTH_TEXTURE_URL);
+  if (THREE.sRGBEncoding) {
+    earthTexture.encoding = THREE.sRGBEncoding;
+  }
+
+  globeShell = new THREE.Mesh(
+    new THREE.SphereGeometry(1.65, 72, 48),
     new THREE.MeshStandardMaterial({
-      color: 0x0c2b3f,
-      transparent: true,
-      opacity: 0.18,
-      roughness: 0.42,
-      metalness: 0.18,
-      emissive: 0x0b86a8,
-      emissiveIntensity: 0.22,
-      side: THREE.DoubleSide,
-      depthWrite: false
+      map: earthTexture,
+      color: 0xffffff,
+      roughness: 0.86,
+      metalness: 0.02,
+      emissive: 0x061a2b,
+      emissiveIntensity: 0.16
     })
   );
-  globeGroup.add(globeFallbackShell);
+  globeGroup.add(globeShell);
 
   const rim = new THREE.Mesh(
     new THREE.SphereGeometry(1.67, 48, 32),
@@ -222,7 +231,13 @@ function initGlobe() {
     new THREE.MeshBasicMaterial({ color: 0x35d7ff, transparent: true, opacity: 0.06, side: THREE.BackSide, depthWrite: false })
   );
   globeGroup.add(atmosphere);
-  loadEarthModel();
+
+  addOrbitRing(1.96, Math.PI / 2.5, 0.18, 0x35d7ff, 0.24);
+  addOrbitRing(2.08, Math.PI / 2.15, -0.62, 0xa78bfa, 0.18);
+  addOrbitRing(1.78, Math.PI / 1.92, 0.84, 0x1fd39d, 0.16);
+  addDataArc(timezoneChoices[0], timezoneChoices[3], 0x35d7ff);
+  addDataArc(timezoneChoices[1], timezoneChoices[4], 0xa78bfa);
+  addDataArc(timezoneChoices[2], timezoneChoices[5], 0x1fd39d);
 
   const markerMaterial = new THREE.MeshBasicMaterial({ color: 0x1fd39d });
   globeMarkers = [];
@@ -237,7 +252,7 @@ function initGlobe() {
   globeRaycaster = new THREE.Raycaster();
   globePointer = new THREE.Vector2();
 
-  globeScene.add(new THREE.AmbientLight(0x88ccff, 1.1));
+  globeScene.add(new THREE.AmbientLight(0x88ccff, 1.28));
   const keyLight = new THREE.DirectionalLight(0xffffff, 2.4);
   keyLight.position.set(3, 2, 4);
   globeScene.add(keyLight);
