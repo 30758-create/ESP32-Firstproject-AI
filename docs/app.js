@@ -57,8 +57,12 @@ const state = {
 let mqttClient = null;
 let ipVisible = false;
 let latestRelayUptime = -1;
-let pumpDurationSeconds = Number(localStorage.getItem("pumpDurationSeconds")) || 300;
-let relay2AutoOffAt = 0;
+const relayDurationSeconds = {
+  1: Number(localStorage.getItem("relay1DurationSeconds")) || 300,
+  2: Number(localStorage.getItem("relay2DurationSeconds")) || 300,
+  3: Number(localStorage.getItem("relay3DurationSeconds")) || 300
+};
+const relayAutoOffAt = { 1: 0, 2: 0, 3: 0 };
 let globeReady = false;
 let globeRenderer = null;
 let globeScene = null;
@@ -140,22 +144,24 @@ function formatCountdown(totalSeconds) {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
-function pumpDurationOptionsHtml() {
+function pumpDurationOptionsHtml(relayId) {
   return pumpDurationOptions
-    .map((option) => `<option value="${option.seconds}" ${option.seconds === pumpDurationSeconds ? "selected" : ""}>${option.label}</option>`)
+    .map((option) => `<option value="${option.seconds}" ${option.seconds === relayDurationSeconds[relayId] ? "selected" : ""}>${option.label}</option>`)
     .join("");
 }
 
 function updatePumpCountdown() {
-  const countdown = document.getElementById("pumpCountdown");
-  if (!countdown || relay2AutoOffAt <= 0) {
-    return;
-  }
+  for (const relay of relays) {
+    const countdown = document.getElementById(`relayCountdown${relay.id}`);
+    if (!countdown || relayAutoOffAt[relay.id] <= 0) {
+      continue;
+    }
 
-  const remainingSeconds = Math.max(0, (relay2AutoOffAt - Date.now()) / 1000);
-  countdown.textContent = remainingSeconds > 0
-    ? `หยุดใน ${formatCountdown(remainingSeconds)}`
-    : "กำลังหยุดปั๊ม...";
+    const remainingSeconds = Math.max(0, (relayAutoOffAt[relay.id] - Date.now()) / 1000);
+    countdown.textContent = remainingSeconds > 0
+      ? `หยุดใน ${formatCountdown(remainingSeconds)}`
+      : "กำลังปิด...";
+  }
 }
 
 function updateLiveClock() {
@@ -501,17 +507,19 @@ function updateStateFromMqtt(topic, payload, retained = false) {
         relay2: payload?.relay2 || state.relay.relay2,
         relay3: payload?.relay3 || state.relay.relay3
       };
-      const remainingSeconds = Number(payload?.relay2_auto_off_remaining_sec);
-      relay2AutoOffAt = Number.isFinite(remainingSeconds) && remainingSeconds > 0
-        ? Date.now() + (remainingSeconds * 1000)
-        : 0;
+      for (const relay of relays) {
+        const remainingSeconds = Number(payload?.[`relay${relay.id}_auto_off_remaining_sec`]);
+        relayAutoOffAt[relay.id] = Number.isFinite(remainingSeconds) && remainingSeconds > 0
+          ? Date.now() + (remainingSeconds * 1000)
+          : 0;
+      }
     }
   } else if (topic === `${BOARD_TOPIC}/event/relay` && !retained) {
     const relayNumber = Number(payload?.relay);
     if (relayNumber >= 1 && relayNumber <= 3 && ["ON", "OFF"].includes(payload?.state)) {
       state.relay[`relay${relayNumber}`] = payload.state;
-      if (relayNumber === 2 && payload.state === "OFF") {
-        relay2AutoOffAt = 0;
+      if (payload.state === "OFF") {
+        relayAutoOffAt[relayNumber] = 0;
       }
     }
   } else if (topic === `${BOARD_TOPIC}/status`) {
@@ -542,18 +550,16 @@ function publish(topic, message) {
 
 function sendRelayCommand(relayId, command) {
   const topic = `${BOARD_TOPIC}/control/relay/${relayId}/set`;
-  const mqttCommand = relayId === 2 && command === "ON"
-    ? `ON_FOR:${pumpDurationSeconds}`
+  const mqttCommand = command === "ON"
+    ? `ON_FOR:${relayDurationSeconds[relayId]}`
     : command;
   if (!publish(topic, mqttCommand)) {
     return;
   }
 
-  if (relayId === 2) {
-    relay2AutoOffAt = command === "ON"
-      ? Date.now() + (pumpDurationSeconds * 1000)
-      : 0;
-  }
+  relayAutoOffAt[relayId] = command === "ON"
+    ? Date.now() + (relayDurationSeconds[relayId] * 1000)
+    : 0;
 
   const relay = relays.find((item) => item.id === relayId);
   if (relay) {
@@ -564,8 +570,8 @@ function sendRelayCommand(relayId, command) {
     renderState();
   }
 
-  addEvent(relayId === 2 && command === "ON"
-    ? `Pump ON for ${pumpDurationSeconds} seconds`
+  addEvent(command === "ON"
+    ? `Relay ${relayId} ON for ${relayDurationSeconds[relayId]} seconds`
     : `Relay ${relayId} command: ${command}`);
 }
 
@@ -586,11 +592,9 @@ function renderRelays() {
     const value = state.relay?.[relay.key] || "OFF";
     const isOn = value === "ON";
     const nextCommand = isOn ? "OFF" : "ON";
-    const pumpControl = relay.id === 2
-      ? (isOn
-          ? `<span id="pumpCountdown" class="pump-countdown">กำลังทำงาน</span>`
-          : `<select class="pump-duration" aria-label="ระยะเวลาเปิดปั๊มน้ำ">${pumpDurationOptionsHtml()}</select>`)
-      : "";
+    const timerControl = isOn
+      ? `<span id="relayCountdown${relay.id}" class="pump-countdown">กำลังทำงาน</span>`
+      : `<select class="pump-duration" aria-label="ระยะเวลาเปิด Relay ${relay.id}">${pumpDurationOptionsHtml(relay.id)}</select>`;
     const row = document.createElement("div");
     row.className = `relay-row ${isOn ? "relay-row-on" : ""}`;
     row.innerHTML = `
@@ -600,7 +604,7 @@ function renderRelays() {
         <span class="relay-state ${isOn ? "on" : ""}">${isOn ? "เปิดอยู่" : "ปิดอยู่"}</span>
       </div>
       <div class="relay-actions">
-        ${pumpControl}
+        ${timerControl}
         <button class="btn-relay-switch ${isOn ? "is-on" : ""}" data-command="${nextCommand}">
           ${isOn ? "ปิด" : "เปิด"}
         </button>
@@ -609,8 +613,8 @@ function renderRelays() {
 
     const durationSelect = row.querySelector(".pump-duration");
     durationSelect?.addEventListener("change", (event) => {
-      pumpDurationSeconds = Number(event.currentTarget.value);
-      localStorage.setItem("pumpDurationSeconds", String(pumpDurationSeconds));
+      relayDurationSeconds[relay.id] = Number(event.currentTarget.value);
+      localStorage.setItem(`relay${relay.id}DurationSeconds`, String(relayDurationSeconds[relay.id]));
     });
 
     row.querySelector("button").addEventListener("click", (event) => {

@@ -27,7 +27,11 @@ const pumpDurationOptions = [
 ];
 
 let latestState = null;
-let pumpDurationSeconds = Number(localStorage.getItem("pumpDurationSeconds")) || 300;
+const relayDurationSeconds = {
+  1: Number(localStorage.getItem("relay1DurationSeconds")) || 300,
+  2: Number(localStorage.getItem("relay2DurationSeconds")) || 300,
+  3: Number(localStorage.getItem("relay3DurationSeconds")) || 300
+};
 let globeReady = false;
 let globeRenderer = null;
 let globeScene = null;
@@ -402,30 +406,32 @@ function formatCountdown(totalSeconds) {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
-function pumpDurationOptionsHtml() {
+function pumpDurationOptionsHtml(relayId) {
   return pumpDurationOptions
-    .map((option) => `<option value="${option.seconds}" ${option.seconds === pumpDurationSeconds ? "selected" : ""}>${option.label}</option>`)
+    .map((option) => `<option value="${option.seconds}" ${option.seconds === relayDurationSeconds[relayId] ? "selected" : ""}>${option.label}</option>`)
     .join("");
 }
 
 function updatePumpCountdown() {
-  const countdown = document.getElementById("pumpCountdown");
-  const autoOffAt = latestState?.relay?.relay2AutoOffAt;
-  if (!countdown || !autoOffAt) {
-    return;
-  }
+  for (const relay of relays) {
+    const countdown = document.getElementById(`relayCountdown${relay.id}`);
+    const autoOffAt = latestState?.relay?.[`relay${relay.id}AutoOffAt`];
+    if (!countdown || !autoOffAt) {
+      continue;
+    }
 
-  const remainingSeconds = Math.max(0, (new Date(autoOffAt).getTime() - Date.now()) / 1000);
-  countdown.textContent = remainingSeconds > 0
-    ? `หยุดใน ${formatCountdown(remainingSeconds)}`
-    : "กำลังหยุดปั๊ม...";
+    const remainingSeconds = Math.max(0, (new Date(autoOffAt).getTime() - Date.now()) / 1000);
+    countdown.textContent = remainingSeconds > 0
+      ? `หยุดใน ${formatCountdown(remainingSeconds)}`
+      : "กำลังปิด...";
+  }
 }
 
 async function sendRelayCommand(relayId, command) {
   const relay = relays.find((item) => item.id === relayId);
   const previousRelayState = latestState?.relay ? { ...latestState.relay } : null;
-  const apiCommand = relayId === 2 && command === "ON"
-    ? `ON_FOR:${pumpDurationSeconds}`
+  const apiCommand = command === "ON"
+    ? `ON_FOR:${relayDurationSeconds[relayId]}`
     : command;
 
   if (relay && latestState?.relay) {
@@ -433,11 +439,9 @@ async function sendRelayCommand(relayId, command) {
     latestState.relay[relay.key] = command === "TOGGLE"
       ? (currentValue === "ON" ? "OFF" : "ON")
       : command;
-    if (relayId === 2) {
-      latestState.relay.relay2AutoOffAt = command === "ON"
-        ? new Date(Date.now() + (pumpDurationSeconds * 1000)).toISOString()
-        : null;
-    }
+    latestState.relay[`relay${relayId}AutoOffAt`] = command === "ON"
+      ? new Date(Date.now() + (relayDurationSeconds[relayId] * 1000)).toISOString()
+      : null;
     renderState(latestState);
   }
 
@@ -490,11 +494,9 @@ function renderRelays(state) {
     const value = state.relay?.[relay.key] || "OFF";
     const isOn = value === "ON";
     const nextCommand = isOn ? "OFF" : "ON";
-    const pumpControl = relay.id === 2
-      ? (isOn
-          ? `<span id="pumpCountdown" class="pump-countdown">Pump running</span>`
-          : `<select class="pump-duration" aria-label="Pump run duration">${pumpDurationOptionsHtml()}</select>`)
-      : "";
+    const timerControl = isOn
+      ? `<span id="relayCountdown${relay.id}" class="pump-countdown">กำลังทำงาน</span>`
+      : `<select class="pump-duration" aria-label="Relay ${relay.id} run duration">${pumpDurationOptionsHtml(relay.id)}</select>`;
     const row = document.createElement("div");
     row.className = `relay-row ${isOn ? "relay-row-on" : ""}`;
     row.innerHTML = `
@@ -504,7 +506,7 @@ function renderRelays(state) {
         <span class="relay-state ${isOn ? "on" : ""}">${isOn ? "เปิดอยู่" : "ปิดอยู่"}</span>
       </div>
       <div class="relay-actions">
-        ${pumpControl}
+        ${timerControl}
         <button class="btn-relay-switch ${isOn ? "is-on" : ""}" data-command="${nextCommand}">
           ${isOn ? "ปิด" : "เปิด"}
         </button>
@@ -513,8 +515,8 @@ function renderRelays(state) {
 
     const durationSelect = row.querySelector(".pump-duration");
     durationSelect?.addEventListener("change", (event) => {
-      pumpDurationSeconds = Number(event.currentTarget.value);
-      localStorage.setItem("pumpDurationSeconds", String(pumpDurationSeconds));
+      relayDurationSeconds[relay.id] = Number(event.currentTarget.value);
+      localStorage.setItem(`relay${relay.id}DurationSeconds`, String(relayDurationSeconds[relay.id]));
     });
 
     row.querySelector("button").addEventListener("click", (event) => {
