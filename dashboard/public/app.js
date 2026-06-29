@@ -15,8 +15,19 @@ const relays = [
   { id: 2, key: "relay2", name: "Relay 2" },
   { id: 3, key: "relay3", name: "Relay 3" }
 ];
+const pumpDurationOptions = [
+  { seconds: 30, label: "30 วินาที" },
+  { seconds: 60, label: "1 นาที" },
+  { seconds: 120, label: "2 นาที" },
+  { seconds: 300, label: "5 นาที" },
+  { seconds: 600, label: "10 นาที" },
+  { seconds: 900, label: "15 นาที" },
+  { seconds: 1800, label: "30 นาที" },
+  { seconds: 3600, label: "1 ชั่วโมง" }
+];
 
 let latestState = null;
+let pumpDurationSeconds = Number(localStorage.getItem("pumpDurationSeconds")) || 300;
 let globeReady = false;
 let globeRenderer = null;
 let globeScene = null;
@@ -384,20 +395,54 @@ function setStatus(id, label, isOn) {
   element.className = `pill ${isOn ? "pill-on" : "pill-off"}`;
 }
 
+function formatCountdown(totalSeconds) {
+  const safeSeconds = Math.max(0, Math.ceil(totalSeconds));
+  const minutes = Math.floor(safeSeconds / 60);
+  const seconds = safeSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function pumpDurationOptionsHtml() {
+  return pumpDurationOptions
+    .map((option) => `<option value="${option.seconds}" ${option.seconds === pumpDurationSeconds ? "selected" : ""}>${option.label}</option>`)
+    .join("");
+}
+
+function updatePumpCountdown() {
+  const countdown = document.getElementById("pumpCountdown");
+  const autoOffAt = latestState?.relay?.relay2AutoOffAt;
+  if (!countdown || !autoOffAt) {
+    return;
+  }
+
+  const remainingSeconds = Math.max(0, (new Date(autoOffAt).getTime() - Date.now()) / 1000);
+  countdown.textContent = remainingSeconds > 0
+    ? `หยุดใน ${formatCountdown(remainingSeconds)}`
+    : "กำลังหยุดปั๊ม...";
+}
+
 async function sendRelayCommand(relayId, command) {
   const relay = relays.find((item) => item.id === relayId);
   const previousRelayState = latestState?.relay ? { ...latestState.relay } : null;
+  const apiCommand = relayId === 2 && command === "ON"
+    ? `ON_FOR:${pumpDurationSeconds}`
+    : command;
 
   if (relay && latestState?.relay) {
     const currentValue = latestState.relay[relay.key] || "OFF";
     latestState.relay[relay.key] = command === "TOGGLE"
       ? (currentValue === "ON" ? "OFF" : "ON")
       : command;
+    if (relayId === 2) {
+      latestState.relay.relay2AutoOffAt = command === "ON"
+        ? new Date(Date.now() + (pumpDurationSeconds * 1000)).toISOString()
+        : null;
+    }
     renderState(latestState);
   }
 
   try {
-    const response = await fetch(`/api/relay/${relayId}?command=${encodeURIComponent(command)}`, {
+    const response = await fetch(`/api/relay/${relayId}?command=${encodeURIComponent(apiCommand)}`, {
       method: "POST"
     });
     const data = await response.json();
@@ -445,6 +490,11 @@ function renderRelays(state) {
     const value = state.relay?.[relay.key] || "OFF";
     const isOn = value === "ON";
     const nextCommand = isOn ? "OFF" : "ON";
+    const pumpControl = relay.id === 2
+      ? (isOn
+          ? `<span id="pumpCountdown" class="pump-countdown">Pump running</span>`
+          : `<select class="pump-duration" aria-label="Pump run duration">${pumpDurationOptionsHtml()}</select>`)
+      : "";
     const row = document.createElement("div");
     row.className = `relay-row ${isOn ? "relay-row-on" : ""}`;
     row.innerHTML = `
@@ -453,10 +503,19 @@ function renderRelays(state) {
         <span>${relay.name}</span>
         <span class="relay-state ${isOn ? "on" : ""}">${isOn ? "เปิดอยู่" : "ปิดอยู่"}</span>
       </div>
-      <button class="btn-relay-switch ${isOn ? "is-on" : ""}" data-command="${nextCommand}">
-        ${isOn ? "ปิด" : "เปิด"}
-      </button>
+      <div class="relay-actions">
+        ${pumpControl}
+        <button class="btn-relay-switch ${isOn ? "is-on" : ""}" data-command="${nextCommand}">
+          ${isOn ? "ปิด" : "เปิด"}
+        </button>
+      </div>
     `;
+
+    const durationSelect = row.querySelector(".pump-duration");
+    durationSelect?.addEventListener("change", (event) => {
+      pumpDurationSeconds = Number(event.currentTarget.value);
+      localStorage.setItem("pumpDurationSeconds", String(pumpDurationSeconds));
+    });
 
     row.querySelector("button").addEventListener("click", (event) => {
       sendRelayCommand(relay.id, event.currentTarget.dataset.command);
@@ -538,5 +597,6 @@ timezoneOpenButton.addEventListener("click", openGlobe);
 globeCloseButton.addEventListener("click", closeGlobe);
 
 setInterval(updateLiveClock, 1000);
+setInterval(updatePumpCountdown, 1000);
 loadTimezone();
 updateLiveClock();

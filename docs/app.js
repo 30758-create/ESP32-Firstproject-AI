@@ -22,6 +22,16 @@ const relays = [
   { id: 2, key: "relay2", name: "Relay 2" },
   { id: 3, key: "relay3", name: "Relay 3" }
 ];
+const pumpDurationOptions = [
+  { seconds: 30, label: "30 วินาที" },
+  { seconds: 60, label: "1 นาที" },
+  { seconds: 120, label: "2 นาที" },
+  { seconds: 300, label: "5 นาที" },
+  { seconds: 600, label: "10 นาที" },
+  { seconds: 900, label: "15 นาที" },
+  { seconds: 1800, label: "30 นาที" },
+  { seconds: 3600, label: "1 ชั่วโมง" }
+];
 
 const state = {
   boardId: BOARD_ID,
@@ -47,6 +57,8 @@ const state = {
 let mqttClient = null;
 let ipVisible = false;
 let latestRelayUptime = -1;
+let pumpDurationSeconds = Number(localStorage.getItem("pumpDurationSeconds")) || 300;
+let relay2AutoOffAt = 0;
 let globeReady = false;
 let globeRenderer = null;
 let globeScene = null;
@@ -119,6 +131,31 @@ function formatTime(isoText) {
     minute: "2-digit",
     second: "2-digit"
   });
+}
+
+function formatCountdown(totalSeconds) {
+  const safeSeconds = Math.max(0, Math.ceil(totalSeconds));
+  const minutes = Math.floor(safeSeconds / 60);
+  const seconds = safeSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function pumpDurationOptionsHtml() {
+  return pumpDurationOptions
+    .map((option) => `<option value="${option.seconds}" ${option.seconds === pumpDurationSeconds ? "selected" : ""}>${option.label}</option>`)
+    .join("");
+}
+
+function updatePumpCountdown() {
+  const countdown = document.getElementById("pumpCountdown");
+  if (!countdown || relay2AutoOffAt <= 0) {
+    return;
+  }
+
+  const remainingSeconds = Math.max(0, (relay2AutoOffAt - Date.now()) / 1000);
+  countdown.textContent = remainingSeconds > 0
+    ? `หยุดใน ${formatCountdown(remainingSeconds)}`
+    : "กำลังหยุดปั๊ม...";
 }
 
 function updateLiveClock() {
@@ -464,11 +501,18 @@ function updateStateFromMqtt(topic, payload, retained = false) {
         relay2: payload?.relay2 || state.relay.relay2,
         relay3: payload?.relay3 || state.relay.relay3
       };
+      const remainingSeconds = Number(payload?.relay2_auto_off_remaining_sec);
+      relay2AutoOffAt = Number.isFinite(remainingSeconds) && remainingSeconds > 0
+        ? Date.now() + (remainingSeconds * 1000)
+        : 0;
     }
   } else if (topic === `${BOARD_TOPIC}/event/relay` && !retained) {
     const relayNumber = Number(payload?.relay);
     if (relayNumber >= 1 && relayNumber <= 3 && ["ON", "OFF"].includes(payload?.state)) {
       state.relay[`relay${relayNumber}`] = payload.state;
+      if (relayNumber === 2 && payload.state === "OFF") {
+        relay2AutoOffAt = 0;
+      }
     }
   } else if (topic === `${BOARD_TOPIC}/status`) {
     if (payload?.status === "online") {
@@ -498,8 +542,17 @@ function publish(topic, message) {
 
 function sendRelayCommand(relayId, command) {
   const topic = `${BOARD_TOPIC}/control/relay/${relayId}/set`;
-  if (!publish(topic, command)) {
+  const mqttCommand = relayId === 2 && command === "ON"
+    ? `ON_FOR:${pumpDurationSeconds}`
+    : command;
+  if (!publish(topic, mqttCommand)) {
     return;
+  }
+
+  if (relayId === 2) {
+    relay2AutoOffAt = command === "ON"
+      ? Date.now() + (pumpDurationSeconds * 1000)
+      : 0;
   }
 
   const relay = relays.find((item) => item.id === relayId);
@@ -511,7 +564,9 @@ function sendRelayCommand(relayId, command) {
     renderState();
   }
 
-  addEvent(`Relay ${relayId} command: ${command}`);
+  addEvent(relayId === 2 && command === "ON"
+    ? `Pump ON for ${pumpDurationSeconds} seconds`
+    : `Relay ${relayId} command: ${command}`);
 }
 
 function sendWifiManagerCommand() {
@@ -531,6 +586,11 @@ function renderRelays() {
     const value = state.relay?.[relay.key] || "OFF";
     const isOn = value === "ON";
     const nextCommand = isOn ? "OFF" : "ON";
+    const pumpControl = relay.id === 2
+      ? (isOn
+          ? `<span id="pumpCountdown" class="pump-countdown">กำลังทำงาน</span>`
+          : `<select class="pump-duration" aria-label="ระยะเวลาเปิดปั๊มน้ำ">${pumpDurationOptionsHtml()}</select>`)
+      : "";
     const row = document.createElement("div");
     row.className = `relay-row ${isOn ? "relay-row-on" : ""}`;
     row.innerHTML = `
@@ -539,10 +599,19 @@ function renderRelays() {
         <span>${relay.name}</span>
         <span class="relay-state ${isOn ? "on" : ""}">${isOn ? "เปิดอยู่" : "ปิดอยู่"}</span>
       </div>
-      <button class="btn-relay-switch ${isOn ? "is-on" : ""}" data-command="${nextCommand}">
-        ${isOn ? "ปิด" : "เปิด"}
-      </button>
+      <div class="relay-actions">
+        ${pumpControl}
+        <button class="btn-relay-switch ${isOn ? "is-on" : ""}" data-command="${nextCommand}">
+          ${isOn ? "ปิด" : "เปิด"}
+        </button>
+      </div>
     `;
+
+    const durationSelect = row.querySelector(".pump-duration");
+    durationSelect?.addEventListener("change", (event) => {
+      pumpDurationSeconds = Number(event.currentTarget.value);
+      localStorage.setItem("pumpDurationSeconds", String(pumpDurationSeconds));
+    });
 
     row.querySelector("button").addEventListener("click", (event) => {
       sendRelayCommand(relay.id, event.currentTarget.dataset.command);
@@ -649,6 +718,7 @@ setInterval(() => {
 }, 15000);
 
 setInterval(updateLiveClock, 1000);
+setInterval(updatePumpCountdown, 1000);
 loadTimezone();
 updateLiveClock();
 

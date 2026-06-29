@@ -467,6 +467,33 @@ button:disabled {
   color: #8cf3d0;
 }
 
+.relay-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.pump-duration {
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 7px;
+  color: #d7e5f5;
+  background: #172238;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.pump-countdown {
+  min-width: 96px;
+  color: #8cf3d0;
+  font-size: 12px;
+  font-weight: 850;
+  text-align: right;
+}
+
 .btn-relay-switch {
   min-width: 64px;
   height: 34px;
@@ -480,6 +507,21 @@ button:disabled {
   color: #ffffff;
   background: linear-gradient(135deg, #20bf7f, #0fa060);
   box-shadow: 0 10px 20px rgba(31, 196, 141, 0.25);
+}
+
+@media (max-width: 560px) {
+  .relay-row {
+    grid-template-columns: 1fr;
+  }
+
+  .relay-actions {
+    justify-content: stretch;
+  }
+
+  .pump-duration,
+  .pump-countdown {
+    flex: 1;
+  }
 }
 
 .btn-on,

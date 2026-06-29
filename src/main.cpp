@@ -78,6 +78,8 @@ bool relay3State = false;
 bool oledReady = false;
 bool sw1ResetTriggered = false;
 bool timeReady = false;
+bool relay2AutoOffActive = false;
+unsigned long relay2AutoOffAt = 0;
 
 int lastReading1 = HIGH, stableState1 = HIGH;
 int lastReading2 = HIGH, stableState2 = HIGH;
@@ -110,6 +112,8 @@ void publishRelayTelemetry();
 void publishStatusTelemetry();
 void publishWeatherTelemetry();
 void resetWiFiAndStartPortal();
+unsigned long relay2AutoOffRemainingSeconds();
+void handleRelay2AutoOff();
 
 String currentTimeText() {
   struct tm timeInfo;
@@ -326,6 +330,10 @@ void setRelayState(int relayNumber, bool newState, const char* source) {
       return;
   }
 
+  if (relayNumber == 2 && !newState) {
+    relay2AutoOffActive = false;
+  }
+
   if (*relayState == newState) {
     return;
   }
@@ -373,7 +381,24 @@ void handleMqttRelayCommand(int relayNumber, const String &payload) {
   command.trim();
   command.toUpperCase();
 
-  if (command == "ON" || command == "1" || command == "TRUE") {
+  if (relayNumber == 2 && command.startsWith("ON_FOR:")) {
+    const unsigned long durationSeconds = command.substring(7).toInt();
+    if (durationSeconds < 1 || durationSeconds > 86400UL) {
+      Serial.println("Relay 2 timer must be between 1 and 86400 seconds.");
+      return;
+    }
+
+    setRelayState(2, true, "mqtt-timer");
+    relay2AutoOffActive = true;
+    relay2AutoOffAt = millis() + (durationSeconds * 1000UL);
+    publishRelayTelemetry();
+    Serial.print("Relay 2 auto-off set for ");
+    Serial.print(durationSeconds);
+    Serial.println(" seconds.");
+  } else if (command == "ON" || command == "1" || command == "TRUE") {
+    if (relayNumber == 2) {
+      relay2AutoOffActive = false;
+    }
     setRelayState(relayNumber, true, "mqtt");
   } else if (command == "OFF" || command == "0" || command == "FALSE") {
     setRelayState(relayNumber, false, "mqtt");
@@ -442,6 +467,7 @@ void publishRelayTelemetry() {
   doc["relay1"] = relay1State ? "ON" : "OFF";
   doc["relay2"] = relay2State ? "ON" : "OFF";
   doc["relay3"] = relay3State ? "ON" : "OFF";
+  doc["relay2_auto_off_remaining_sec"] = relay2AutoOffRemainingSeconds();
   publishMqttJson("telemetry/relay", doc, true);
 }
 
@@ -554,6 +580,30 @@ void handleMqtt() {
     lastMqttStatus = now;
     publishStatusTelemetry();
     publishRelayTelemetry();
+  }
+}
+
+unsigned long relay2AutoOffRemainingSeconds() {
+  if (!relay2AutoOffActive || !relay2State) {
+    return 0;
+  }
+
+  const long remainingMs = static_cast<long>(relay2AutoOffAt - millis());
+  if (remainingMs <= 0) {
+    return 0;
+  }
+
+  return (static_cast<unsigned long>(remainingMs) + 999UL) / 1000UL;
+}
+
+void handleRelay2AutoOff() {
+  if (!relay2AutoOffActive) {
+    return;
+  }
+
+  if (static_cast<long>(millis() - relay2AutoOffAt) >= 0) {
+    relay2AutoOffActive = false;
+    setRelayState(2, false, "auto-timer");
   }
 }
 
@@ -990,6 +1040,7 @@ void setup() {
 
 void loop() {
   handleMqtt();
+  handleRelay2AutoOff();
   handleSw1();
   handleSwitch(SW2_PIN, lastReading2, stableState2, lastDebounceTime2, relay2State, RELAY2_PIN, "Relay 2");
   handleSwitch(SW3_PIN, lastReading3, stableState3, lastDebounceTime3, relay3State, RELAY3_PIN, "Relay 3");

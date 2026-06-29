@@ -28,7 +28,8 @@ const state = {
   relay: {
     relay1: "OFF",
     relay2: "OFF",
-    relay3: "OFF"
+    relay3: "OFF",
+    relay2AutoOffAt: null
   },
   events: []
 };
@@ -81,16 +82,23 @@ function updateStateFromMqtt(topic, payload, retained = false) {
     const relayUptime = Number(payload?.uptime_ms);
     if (Number.isFinite(relayUptime) && relayUptime >= latestRelayUptime) {
       latestRelayUptime = relayUptime;
+      const remainingSeconds = Number(payload?.relay2_auto_off_remaining_sec) || 0;
       state.relay = {
         relay1: payload?.relay1 || state.relay.relay1,
         relay2: payload?.relay2 || state.relay.relay2,
-        relay3: payload?.relay3 || state.relay.relay3
+        relay3: payload?.relay3 || state.relay.relay3,
+        relay2AutoOffAt: remainingSeconds > 0
+          ? new Date(Date.now() + (remainingSeconds * 1000)).toISOString()
+          : null
       };
     }
   } else if (topic === `${BOARD_TOPIC}/event/relay` && !retained) {
     const relayNumber = Number(payload?.relay);
     if (relayNumber >= 1 && relayNumber <= 3 && ["ON", "OFF"].includes(payload?.state)) {
       state.relay[`relay${relayNumber}`] = payload.state;
+      if (relayNumber === 2 && payload.state === "OFF") {
+        state.relay.relay2AutoOffAt = null;
+      }
     }
   } else if (topic === `${BOARD_TOPIC}/status`) {
     if (payload?.status === "online") {
@@ -159,8 +167,11 @@ function publishRelayCommand(relay, command, response) {
   const normalizedCommand = String(command || "").trim().toUpperCase();
   const allowedRelays = [1, 2, 3];
   const allowedCommands = ["ON", "OFF", "TOGGLE"];
+  const timerMatch = normalizedCommand.match(/^ON_FOR:(\d+)$/);
+  const timerSeconds = timerMatch ? Number(timerMatch[1]) : 0;
+  const validTimerCommand = relayNumber === 2 && timerSeconds >= 1 && timerSeconds <= 86400;
 
-  if (!allowedRelays.includes(relayNumber) || !allowedCommands.includes(normalizedCommand)) {
+  if (!allowedRelays.includes(relayNumber) || (!allowedCommands.includes(normalizedCommand) && !validTimerCommand)) {
     sendJson(response, 400, { ok: false, error: "Invalid relay or command." });
     return;
   }
