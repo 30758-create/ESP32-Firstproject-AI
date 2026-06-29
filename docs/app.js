@@ -441,7 +441,8 @@ function parsePayload(payload) {
 }
 
 function updateStateFromMqtt(topic, payload) {
-  state.mqtt.lastMessageAt = new Date().toISOString();
+  const receivedAt = new Date().toISOString();
+  state.mqtt.lastMessageAt = receivedAt;
 
   if (topic === `${BOARD_TOPIC}/telemetry/weather`) {
     state.weather = payload || {};
@@ -449,6 +450,8 @@ function updateStateFromMqtt(topic, payload) {
     state.air = payload || {};
   } else if (topic === `${BOARD_TOPIC}/telemetry/status`) {
     state.wifi = payload || {};
+    state.station.online = true;
+    state.station.lastStatusAt = receivedAt;
   } else if (topic === `${BOARD_TOPIC}/telemetry/relay`) {
     state.relay = {
       relay1: payload?.relay1 || state.relay.relay1,
@@ -457,7 +460,7 @@ function updateStateFromMqtt(topic, payload) {
     };
   } else if (topic === `${BOARD_TOPIC}/status`) {
     state.station.online = payload?.status === "online";
-    state.station.lastStatusAt = new Date().toISOString();
+    state.station.lastStatusAt = receivedAt;
   }
 }
 
@@ -612,11 +615,11 @@ function connectMqtt() {
 }
 
 setInterval(() => {
-  if (!state.mqtt.lastMessageAt) {
+  if (!state.station.lastStatusAt) {
     return;
   }
 
-  const ageMs = Date.now() - new Date(state.mqtt.lastMessageAt).getTime();
+  const ageMs = Date.now() - new Date(state.station.lastStatusAt).getTime();
   if (ageMs > STALE_AFTER_MS && state.station.online) {
     state.station.online = false;
     addEvent("Station data is stale");

@@ -9,6 +9,7 @@ const BOARD_ID = process.env.BOARD_ID || "esp32-weather-smartyyy-8f42";
 const MQTT_BASE_TOPIC = process.env.MQTT_BASE_TOPIC || "esp32/weather";
 const BOARD_TOPIC = `${MQTT_BASE_TOPIC}/${BOARD_ID}`;
 const PUBLIC_DIR = path.join(__dirname, "public");
+const STALE_AFTER_MS = 90000;
 
 const state = {
   boardId: BOARD_ID,
@@ -62,7 +63,8 @@ function parseJsonPayload(payload) {
 }
 
 function updateStateFromMqtt(topic, payload) {
-  state.mqtt.lastMessageAt = new Date().toISOString();
+  const receivedAt = new Date().toISOString();
+  state.mqtt.lastMessageAt = receivedAt;
 
   if (topic === `${BOARD_TOPIC}/telemetry/weather`) {
     state.weather = payload || {};
@@ -70,6 +72,8 @@ function updateStateFromMqtt(topic, payload) {
     state.air = payload || {};
   } else if (topic === `${BOARD_TOPIC}/telemetry/status`) {
     state.wifi = payload || {};
+    state.station.online = true;
+    state.station.lastStatusAt = receivedAt;
   } else if (topic === `${BOARD_TOPIC}/telemetry/relay`) {
     state.relay = {
       relay1: payload?.relay1 || state.relay.relay1,
@@ -78,7 +82,7 @@ function updateStateFromMqtt(topic, payload) {
     };
   } else if (topic === `${BOARD_TOPIC}/status`) {
     state.station.online = payload?.status === "online";
-    state.station.lastStatusAt = new Date().toISOString();
+    state.station.lastStatusAt = receivedAt;
   }
 }
 
@@ -114,6 +118,19 @@ mqttClient.on("message", (topic, payloadBuffer) => {
   updateStateFromMqtt(topic, payload);
   broadcastState();
 });
+
+setInterval(() => {
+  if (!state.station.lastStatusAt) {
+    return;
+  }
+
+  const ageMs = Date.now() - new Date(state.station.lastStatusAt).getTime();
+  if (ageMs > STALE_AFTER_MS && state.station.online) {
+    state.station.online = false;
+    addEvent("Station data is stale");
+    broadcastState();
+  }
+}, 15000);
 
 function publishRelayCommand(relay, command, response) {
   const relayNumber = Number(relay);
