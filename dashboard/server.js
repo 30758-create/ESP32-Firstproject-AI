@@ -62,7 +62,7 @@ function parseJsonPayload(payload) {
   }
 }
 
-function updateStateFromMqtt(topic, payload) {
+function updateStateFromMqtt(topic, payload, retained = false) {
   const receivedAt = new Date().toISOString();
   state.mqtt.lastMessageAt = receivedAt;
 
@@ -72,8 +72,10 @@ function updateStateFromMqtt(topic, payload) {
     state.air = payload || {};
   } else if (topic === `${BOARD_TOPIC}/telemetry/status`) {
     state.wifi = payload || {};
-    state.station.online = true;
-    state.station.lastStatusAt = receivedAt;
+    if (!retained) {
+      state.station.online = true;
+      state.station.lastStatusAt = receivedAt;
+    }
   } else if (topic === `${BOARD_TOPIC}/telemetry/relay`) {
     state.relay = {
       relay1: payload?.relay1 || state.relay.relay1,
@@ -81,8 +83,18 @@ function updateStateFromMqtt(topic, payload) {
       relay3: payload?.relay3 || state.relay.relay3
     };
   } else if (topic === `${BOARD_TOPIC}/status`) {
-    state.station.online = payload?.status === "online";
-    state.station.lastStatusAt = receivedAt;
+    if (payload?.status === "online") {
+      state.station.online = true;
+      state.station.lastStatusAt = receivedAt;
+    } else {
+      const lastHeartbeatAt = state.station.lastStatusAt
+        ? new Date(state.station.lastStatusAt).getTime()
+        : 0;
+      const heartbeatIsStale = Date.now() - lastHeartbeatAt > STALE_AFTER_MS;
+      if (heartbeatIsStale) {
+        state.station.online = false;
+      }
+    }
   }
 }
 
@@ -113,9 +125,9 @@ mqttClient.on("error", (error) => {
   broadcastState();
 });
 
-mqttClient.on("message", (topic, payloadBuffer) => {
+mqttClient.on("message", (topic, payloadBuffer, packet) => {
   const payload = parseJsonPayload(payloadBuffer);
-  updateStateFromMqtt(topic, payload);
+  updateStateFromMqtt(topic, payload, packet.retain);
   broadcastState();
 });
 
