@@ -35,12 +35,4 @@ This is a static page. Anyone with the link and the MQTT topic can send commands
 
 For real use, move to a private MQTT broker with username/password, such as HiveMQ Cloud, EMQX Cloud, or a self-hosted Mosquitto broker.
 
-## Access PIN
-
-The dashboard has a simple static PIN gate. The current PIN is:
-
-```text
-SmartCName6767
-```
-
-To change it, replace `ACCESS_PIN_SHA256` in `docs/app.js` with the SHA-256 hash of your new PIN. This is only a lightweight gate because the page source is public.
+The dashboard opens directly without an access PIN.

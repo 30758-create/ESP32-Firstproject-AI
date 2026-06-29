@@ -17,7 +17,6 @@ const relays = [
 ];
 
 let latestState = null;
-let dashboardPin = localStorage.getItem("dashboardPin") || "";
 let globeReady = false;
 let globeRenderer = null;
 let globeScene = null;
@@ -399,8 +398,7 @@ async function sendRelayCommand(relayId, command) {
 
   try {
     const response = await fetch(`/api/relay/${relayId}?command=${encodeURIComponent(command)}`, {
-      method: "POST",
-      headers: authHeaders()
+      method: "POST"
     });
     const data = await response.json();
 
@@ -426,8 +424,7 @@ async function sendWifiManagerCommand() {
 
   try {
     const response = await fetch("/api/wifi-manager", {
-      method: "POST",
-      headers: authHeaders()
+      method: "POST"
     });
     const data = await response.json();
 
@@ -439,21 +436,6 @@ async function sendWifiManagerCommand() {
   } finally {
     wifiManagerButton.disabled = false;
   }
-}
-
-function authHeaders() {
-  if (!latestState?.authRequired) {
-    return {};
-  }
-
-  if (!dashboardPin) {
-    dashboardPin = prompt("Dashboard PIN") || "";
-    localStorage.setItem("dashboardPin", dashboardPin);
-  }
-
-  return {
-    "X-Dashboard-Pin": dashboardPin
-  };
 }
 
 function renderRelays(state) {

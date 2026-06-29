@@ -7,13 +7,11 @@ const PORT = Number(process.env.PORT || 3000);
 const MQTT_URL = process.env.MQTT_URL || "mqtt://broker.hivemq.com:1883";
 const BOARD_ID = process.env.BOARD_ID || "esp32-weather-smartyyy-8f42";
 const MQTT_BASE_TOPIC = process.env.MQTT_BASE_TOPIC || "esp32/weather";
-const DASHBOARD_PIN = process.env.DASHBOARD_PIN || "";
 const BOARD_TOPIC = `${MQTT_BASE_TOPIC}/${BOARD_ID}`;
 const PUBLIC_DIR = path.join(__dirname, "public");
 
 const state = {
   boardId: BOARD_ID,
-  authRequired: DASHBOARD_PIN.length > 0,
   mqtt: {
     url: MQTT_URL,
     connected: false,
@@ -157,23 +155,6 @@ function publishWifiManagerCommand(response) {
   });
 }
 
-function isAuthorized(request) {
-  if (!DASHBOARD_PIN) {
-    return true;
-  }
-
-  return request.headers["x-dashboard-pin"] === DASHBOARD_PIN;
-}
-
-function requireAuthorized(request, response) {
-  if (isAuthorized(request)) {
-    return true;
-  }
-
-  sendJson(response, 401, { ok: false, error: "Invalid dashboard PIN." });
-  return false;
-}
-
 function sendJson(response, statusCode, data) {
   response.writeHead(statusCode, {
     "Content-Type": "application/json; charset=utf-8"
@@ -245,20 +226,12 @@ const server = http.createServer((request, response) => {
   }
 
   if (request.method === "POST" && url.pathname.startsWith("/api/relay/")) {
-    if (!requireAuthorized(request, response)) {
-      return;
-    }
-
     const parts = url.pathname.split("/");
     publishRelayCommand(parts[3], url.searchParams.get("command"), response);
     return;
   }
 
   if (request.method === "POST" && url.pathname === "/api/wifi-manager") {
-    if (!requireAuthorized(request, response)) {
-      return;
-    }
-
     publishWifiManagerCommand(response);
     return;
   }

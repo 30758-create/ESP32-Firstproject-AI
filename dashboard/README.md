@@ -39,14 +39,7 @@ $env:MQTT_BASE_TOPIC="esp32/weather"
 npm start
 ```
 
-For a public cloud dashboard, set a PIN for relay and WiFi Manager commands:
-
-```powershell
-$env:DASHBOARD_PIN="change-this-pin"
-npm start
-```
-
-On Render, add `DASHBOARD_PIN` as an environment variable.
+The dashboard opens directly without an access PIN.
 
 ## Telemetry topics
 

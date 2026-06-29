@@ -3,7 +3,6 @@ const BOARD_ID = "esp32-weather-smartyyy-8f42";
 const MQTT_BASE_TOPIC = "esp32/weather";
 const BOARD_TOPIC = `${MQTT_BASE_TOPIC}/${BOARD_ID}`;
 const STALE_AFTER_MS = 90000;
-const ACCESS_PIN_SHA256 = "48abb45519bafd93fc621be74eb9b456639e77f21431ac8baec36eb79f54d2a0";
 const EARTH_TEXTURE_URL = "assets/earth_atmos_2048.jpg";
 
 const relayList = document.getElementById("relayList");
@@ -17,10 +16,6 @@ const globeOverlay = document.getElementById("globeOverlay");
 const globeCanvas = document.getElementById("globeCanvas");
 const globeCloseButton = document.getElementById("globeCloseButton");
 const timezoneOptions = document.getElementById("timezoneOptions");
-const accessGate = document.getElementById("accessGate");
-const accessForm = document.getElementById("accessForm");
-const accessPin = document.getElementById("accessPin");
-const accessError = document.getElementById("accessError");
 const revealIpButton = document.getElementById("revealIpButton");
 const relays = [
   { id: 1, key: "relay1", name: "Relay 1" },
@@ -50,7 +45,6 @@ const state = {
 };
 
 let mqttClient = null;
-let appStarted = false;
 let ipVisible = false;
 let globeReady = false;
 let globeRenderer = null;
@@ -79,38 +73,9 @@ const timezoneChoices = [
   { value: "UTC", label: "UTC", region: "Coordinated Time", lat: 0, lon: 0 }
 ];
 
-async function sha256(text) {
-  const data = new TextEncoder().encode(text);
-  const digest = await crypto.subtle.digest("SHA-256", data);
-  return Array.from(new Uint8Array(digest))
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
-}
-
 function startApp() {
-  if (appStarted) {
-    return;
-  }
-
-  appStarted = true;
-  accessGate.classList.add("hidden");
   renderState();
   connectMqtt();
-}
-
-async function verifyAccess(event) {
-  event.preventDefault();
-  accessError.textContent = "";
-
-  const enteredHash = await sha256(accessPin.value);
-  if (enteredHash !== ACCESS_PIN_SHA256) {
-    accessError.textContent = "Invalid PIN";
-    accessPin.value = "";
-    accessPin.focus();
-    return;
-  }
-
-  startApp();
 }
 
 function toggleIpAddress() {
@@ -663,10 +628,8 @@ loadTimezone();
 updateLiveClock();
 
 wifiManagerButton.addEventListener("click", sendWifiManagerCommand);
-accessForm.addEventListener("submit", verifyAccess);
 revealIpButton.addEventListener("click", toggleIpAddress);
 timezoneSelect.addEventListener("change", saveTimezone);
 timezoneOpenButton.addEventListener("click", openGlobe);
 globeCloseButton.addEventListener("click", closeGlobe);
-
-accessPin.focus();
+startApp();
