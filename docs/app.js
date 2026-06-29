@@ -46,6 +46,7 @@ const state = {
 
 let mqttClient = null;
 let ipVisible = false;
+let latestRelayUptime = -1;
 let globeReady = false;
 let globeRenderer = null;
 let globeScene = null;
@@ -455,11 +456,20 @@ function updateStateFromMqtt(topic, payload, retained = false) {
       state.station.lastStatusAt = receivedAt;
     }
   } else if (topic === `${BOARD_TOPIC}/telemetry/relay`) {
-    state.relay = {
-      relay1: payload?.relay1 || state.relay.relay1,
-      relay2: payload?.relay2 || state.relay.relay2,
-      relay3: payload?.relay3 || state.relay.relay3
-    };
+    const relayUptime = Number(payload?.uptime_ms);
+    if (Number.isFinite(relayUptime) && relayUptime >= latestRelayUptime) {
+      latestRelayUptime = relayUptime;
+      state.relay = {
+        relay1: payload?.relay1 || state.relay.relay1,
+        relay2: payload?.relay2 || state.relay.relay2,
+        relay3: payload?.relay3 || state.relay.relay3
+      };
+    }
+  } else if (topic === `${BOARD_TOPIC}/event/relay` && !retained) {
+    const relayNumber = Number(payload?.relay);
+    if (relayNumber >= 1 && relayNumber <= 3 && ["ON", "OFF"].includes(payload?.state)) {
+      state.relay[`relay${relayNumber}`] = payload.state;
+    }
   } else if (topic === `${BOARD_TOPIC}/status`) {
     if (payload?.status === "online") {
       state.station.online = true;

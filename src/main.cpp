@@ -438,6 +438,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
 void publishRelayTelemetry() {
   JsonDocument doc;
   doc["board_id"] = BOARD_ID;
+  doc["uptime_ms"] = millis();
   doc["relay1"] = relay1State ? "ON" : "OFF";
   doc["relay2"] = relay2State ? "ON" : "OFF";
   doc["relay3"] = relay3State ? "ON" : "OFF";
@@ -552,6 +553,7 @@ void handleMqtt() {
   if ((now - lastMqttStatus) >= MQTT_STATUS_INTERVAL_MS) {
     lastMqttStatus = now;
     publishStatusTelemetry();
+    publishRelayTelemetry();
   }
 }
 
